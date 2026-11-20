@@ -100,9 +100,73 @@ function Sources.ScanGroupFinder()
   return added
 end
 
--- Ask Blizzard's own UI to re-run its last search (needs a hardware click, which
--- our Refresh button provides). Returns true if a search was triggered.
+---------------------------------------------------------------------------
+-- Category / activity pickers (Dungeons -> Krol'dok Stronghold, etc.)
+---------------------------------------------------------------------------
+
+function Sources.GetCategories()
+  local out = {}
+  if not (C_LFGList and C_LFGList.GetAvailableCategories) then return out end
+  local ok, ids = pcall(C_LFGList.GetAvailableCategories)
+  if not ok or type(ids) ~= "table" then return out end
+  for _, id in ipairs(ids) do
+    local name
+    if C_LFGList.GetLfgCategoryInfo then
+      local okI, info = pcall(C_LFGList.GetLfgCategoryInfo, id)
+      if okI and type(info) == "table" then name = info.name end
+    end
+    if not name and C_LFGList.GetCategoryInfo then
+      local okI, n = pcall(C_LFGList.GetCategoryInfo, id)
+      if okI then name = type(n) == "table" and n.name or n end
+    end
+    out[#out + 1] = { id = id, name = name or ("Category " .. id) }
+  end
+  return out
+end
+
+function Sources.GetActivities(categoryID)
+  local out = {}
+  if not (categoryID and C_LFGList and C_LFGList.GetAvailableActivities) then return out end
+  local ok, ids = pcall(C_LFGList.GetAvailableActivities, categoryID)
+  if not ok or type(ids) ~= "table" then return out end
+  for _, id in ipairs(ids) do
+    local name
+    if C_LFGList.GetActivityInfoTable then
+      local okI, info = pcall(C_LFGList.GetActivityInfoTable, id)
+      if okI and type(info) == "table" then name = info.fullName or info.shortName end
+    end
+    if not name and C_LFGList.GetActivityInfo then
+      local okI, n = pcall(C_LFGList.GetActivityInfo, id)
+      if okI then name = type(n) == "table" and n.fullName or n end
+    end
+    out[#out + 1] = { id = id, name = name or ("Activity " .. id) }
+  end
+  return out
+end
+
+-- Run a search for the picked category/activity. Must be called from a click
+-- or key press. activityID 0 = everything in the category.
+local function searchPicked()
+  local db = LFGRivalsDB
+  if not (db and db.categoryID and C_LFGList and C_LFGList.Search) then return false end
+  local activityIDs = {}
+  if db.activityID and db.activityID ~= 0 then
+    activityIDs[1] = db.activityID
+  else
+    for _, a in ipairs(Sources.GetActivities(db.categoryID)) do activityIDs[#activityIDs + 1] = a.id end
+  end
+  -- Classic-style browser: Search(categoryID, activityIDs)
+  if pcall(C_LFGList.Search, db.categoryID, activityIDs) then return true end
+  -- Retail-style: Search(categoryID, filter, preferredFilters, languageFilter, crossFaction, advanced, activityIDs)
+  if pcall(C_LFGList.Search, db.categoryID, 0, 0, nil, nil, nil, activityIDs) then return true end
+  return false
+end
+
+-- Start a search (needs a hardware click/keypress, which our Refresh button,
+-- keybind, minimap button and keystroke hook all provide). Uses the picked
+-- category/activity; falls back to re-running Blizzard's own last search.
 function Sources.RequestRefresh()
+  if searchPicked() then return true end
   local candidates = {
     LFGBrowseFrame and LFGBrowseFrame.RefreshButton,                         -- Classic-style browser
     LFGListFrame and LFGListFrame.SearchPanel and LFGListFrame.SearchPanel.RefreshButton, -- Retail-style

@@ -10,7 +10,8 @@ The TOC lists interface `11507, 16001`. If the client says "out of date", run `/
 
 ## Use
 
-- `/rivals` (or `/lfgr`) toggles the window.
+- `/rivals` (or `/lfgr`) toggles the window, and so does the **minimap button** (left-click). Right-click the button to search now, drag it to move it around the minimap, and use `/rivals minimap` to hide or show it.
+- **Search:** pick a category (Dungeons, Raids…) and an activity (one specific dungeon, or "All"), like Blizzard's LFG browser. Picking one searches right away, and later refreshes reuse that pick.
 - **Me:** click the class or spec button to cycle forward, right-click to go back. Your spec is auto-detected from talents until you pick one by hand (`/rivals reset` re-detects it).
 - Click a row to whisper, shift-click to invite. The `W` and `+` buttons do the same.
 - Hover a row for the full LFG note, the likely spec(s) and the score.
@@ -30,7 +31,7 @@ Blizzard only lets a Group Finder search start from a real click or key press, s
 - Any search, whether yours, the keybind's or Blizzard's own UI, resets the timer.
 - There are also keybinds under *Key Bindings → AddOns → LFG Rivals* for "Toggle window" and "Refresh".
 
-The Group Finder has to have run one search first (open it and hit Search once per session), because Refresh re-runs Blizzard's last search.
+Searches use the category/activity picked in the window. If nothing is picked, Refresh falls back to re-running Blizzard's last Group Finder search.
 
 ## The "Rival" score (0–100)
 

@@ -8,4 +8,5 @@
 Data.lua
 Sources.lua
 UI.lua
+Minimap.lua
 Core.lua

@@ -14,6 +14,9 @@ local DEFAULTS = {
   useChat = true,
   maxScore = 100,       -- hide DPS that compete more than this
   pollInterval = 30,    -- seconds between auto-refreshes; 0 = off
+  categoryID = nil,     -- Group Finder category to search (e.g. Dungeons)
+  activityID = 0,       -- specific dungeon/raid; 0 = whole category
+  minimap = { angle = 200, hide = false },
 }
 
 Core.POLL_STEPS = { 0, 15, 30, 60, 120 }
@@ -179,7 +182,7 @@ end
 function Core.ManualRefresh()
   scheduleNext()
   if not Sources.RequestRefresh() then
-    print("open the Group Finder once and run a search, then Refresh works from here.")
+    print("pick a category (e.g. Dungeons) at the top of the window first.")
   end
   Sources.ScanGroupFinder()
   markDirty()
@@ -248,6 +251,8 @@ f:SetScript("OnEvent", function(_, event, ...)
                           "CHARACTER_POINTS_CHANGED", "PLAYER_TALENT_UPDATE", "CHAT_MSG_CHANNEL" }) do
       pcall(f.RegisterEvent, f, ev)
     end
+    if type(LFGRivalsDB.minimap) ~= "table" then LFGRivalsDB.minimap = { angle = 200, hide = false } end
+    ns.Minimap.Create()
     Sources.ScanGroupFinder()
     poll.nextAt = GetTime() + 5   -- first refresh on your first key press after login
     C_Timer.NewTicker(1, tick)
@@ -295,9 +300,12 @@ SlashCmdList.LFGRIVALS = function(msg)
     else
       print("auto-refresh off.")
     end
+  elseif msg == "minimap" then
+    print(ns.Minimap.Toggle() and "minimap button shown." or "minimap button hidden (/rivals minimap to bring it back).")
   elseif msg == "help" then
     print("/rivals - toggle window | /rivals reset - re-detect spec | /rivals max <0-100> - hide DPS above that score"
-      .. " | /rivals poll <seconds|off> - auto-refresh cadence (min " .. Core.MIN_POLL .. "s)")
+      .. " | /rivals poll <seconds|off> - auto-refresh cadence (min " .. Core.MIN_POLL .. "s)"
+      .. " | /rivals minimap - show/hide minimap button")
   else
     ns.UI.Toggle()
   end

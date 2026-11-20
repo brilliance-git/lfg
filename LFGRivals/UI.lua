@@ -4,7 +4,7 @@ local ADDON, ns = ...
 local UI = {}
 ns.UI = UI
 
-local ROW_H, WIDTH, HEIGHT = 20, 560, 460
+local ROW_H, WIDTH, HEIGHT = 20, 560, 500
 local ROLE_LABEL = {
   HEALER  = "|cff40ff40Heal|r",
   TANK    = "|cff4da6ffTank|r",
@@ -17,7 +17,9 @@ local SECTION = {
 }
 
 local frame, scroll, content, statusText, refreshBtn, pollBtn, classBtn, specBtn
+local catPicker, actPicker
 local rows = {}
+local ROW1, ROW2, ROW3 = -30, -60, -92   -- me/refresh, category/activity, toggles
 
 local function classColor(class)
   local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
@@ -59,7 +61,7 @@ end
 local function checkbox(parent, label, key, x)
   local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
   cb:SetSize(22, 22)
-  cb:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -56)
+  cb:SetPoint("TOPLEFT", parent, "TOPLEFT", x, ROW3)
   local fs = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   fs:SetPoint("LEFT", cb, "RIGHT", 2, 0)
   fs:SetText(label)
@@ -69,6 +71,66 @@ local function checkbox(parent, label, key, x)
     UI.Refresh()
   end)
   return cb
+end
+
+---------------------------------------------------------------------------
+-- Pickers: a Blizzard-style dropdown when UIDropDownMenu exists, otherwise a
+-- button that cycles (left-click forward, right-click back).
+--   getItems() -> { {id, name}, ... }, getSelected() -> id, onPick(id)
+---------------------------------------------------------------------------
+
+local function makePicker(name, parent, width, getItems, getSelected, onPick)
+  local p = {}
+  local function labelFor(id)
+    for _, it in ipairs(getItems()) do if it.id == id then return it.name end end
+    return "|cff888888Pick...|r"
+  end
+
+  if UIDropDownMenu_Initialize and UIDropDownMenu_CreateInfo then
+    local dd = CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")
+    UIDropDownMenu_SetWidth(dd, width)
+    UIDropDownMenu_Initialize(dd, function(_, level)
+      for _, it in ipairs(getItems()) do
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = it.name
+        info.checked = (it.id == getSelected())
+        info.func = function() onPick(it.id) end   -- runs inside the click
+        UIDropDownMenu_AddButton(info, level)
+      end
+    end)
+    p.frame = dd
+    p.Update = function() UIDropDownMenu_SetText(dd, labelFor(getSelected())) end
+  else
+    local b = smallButton(parent, "", width + 20)
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:SetScript("OnClick", function(_, btn)
+      local items, cur = getItems(), 0
+      if #items == 0 then return end
+      for i, it in ipairs(items) do if it.id == getSelected() then cur = i end end
+      cur = (cur - 1 + (btn == "RightButton" and -1 or 1)) % #items + 1
+      onPick(items[cur].id)
+    end)
+    p.frame = b
+    p.Update = function() b:SetText(labelFor(getSelected())) end
+  end
+  return p
+end
+
+local function categoryItems() return ns.Sources.GetCategories() end
+local function activityItems()
+  local items = { { id = 0, name = "All" } }
+  for _, a in ipairs(ns.Sources.GetActivities(LFGRivalsDB.categoryID)) do items[#items + 1] = a end
+  return items
+end
+
+local function updatePickers()
+  local db = LFGRivalsDB
+  if not db.categoryID then
+    local cats = categoryItems()
+    if cats[1] then db.categoryID = cats[1].id end
+  end
+  catPicker.Update()
+  actPicker.Update()
 end
 
 ---------------------------------------------------------------------------
@@ -210,7 +272,7 @@ local function build()
   title:SetText("LFG Rivals")
 
   local me = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  me:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -34)
+  me:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, ROW1 - 4)
   me:SetText("Me:")
 
   classBtn = smallButton(frame, "", 100)
@@ -224,12 +286,36 @@ local function build()
   specBtn:SetScript("OnClick", function(_, btn) ns.Core.CycleSpec(btn == "RightButton" and -1 or 1); UI.Refresh() end)
 
   refreshBtn = smallButton(frame, "Refresh", 80)
-  refreshBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -30)
+  refreshBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, ROW1)
   refreshBtn:SetScript("OnClick", function() ns.Core.ManualRefresh() end)
 
   pollBtn = smallButton(frame, "", 84)
   pollBtn:SetPoint("RIGHT", refreshBtn, "LEFT", -4, 0)
   pollBtn:SetScript("OnClick", function() ns.Core.CyclePoll(); updatePoll() end)
+
+  -- Category -> activity, like Blizzard's LFG browser. Picking one searches
+  -- right away (the pick is a click, so the search is allowed).
+  local searchLbl = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  searchLbl:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, ROW2 - 8)
+  searchLbl:SetText("Search:")
+
+  catPicker = makePicker("LFGRivalsCategoryDropDown", frame, 130, categoryItems,
+    function() return LFGRivalsDB.categoryID end,
+    function(id)
+      LFGRivalsDB.categoryID, LFGRivalsDB.activityID = id, 0
+      updatePickers()
+      ns.Core.ManualRefresh()
+    end)
+  catPicker.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 50, ROW2)
+
+  actPicker = makePicker("LFGRivalsActivityDropDown", frame, 190, activityItems,
+    function() return LFGRivalsDB.activityID end,
+    function(id)
+      LFGRivalsDB.activityID = id
+      updatePickers()
+      ns.Core.ManualRefresh()
+    end)
+  actPicker.frame:SetPoint("LEFT", catPicker.frame, "RIGHT", 0, 0)
 
   checkbox(frame, "Show tanks", "showTanks", 12)
   checkbox(frame, "Solo players only", "soloOnly", 120)
@@ -237,12 +323,12 @@ local function build()
 
   for _, col in ipairs({ { 4, "Role" }, { 42, "Name" }, { 154, "Spec" }, { 250, "Rival" }, { 296, "Note" } }) do
     local h = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    h:SetPoint("TOPLEFT", frame, "TOPLEFT", 12 + col[1], -86)
+    h:SetPoint("TOPLEFT", frame, "TOPLEFT", 12 + col[1], ROW3 - 30)
     h:SetText(col[2])
   end
 
   scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -100)
+  scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, ROW3 - 44)
   scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -32, 30)
   content = CreateFrame("Frame", nil, scroll)
   content:SetSize(WIDTH - 44, 1)
@@ -264,6 +350,7 @@ function UI.Refresh()
   if not frame or not frame:IsShown() then return end
   updateMe()
   updatePoll()
+  updatePickers()
 
   local list = ns.Core.BuildList()
   local display, lastRole = {}, nil
