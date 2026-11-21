@@ -419,6 +419,8 @@ local function setRow(r, d)
   local tags = ns.Social.Tags(d.social)
   local ct = contactTag(d.contacted)
   if ct ~= "" then tags = tags ~= "" and (tags .. " " .. ct) or ct end
+  -- Greyed rows say why up front (e.g. "too low (44-54)").
+  if d.why then tags = "|cffff7f7f" .. d.why .. "|r" .. (tags ~= "" and (" " .. tags) or "") end
   r.comment:SetText((tags ~= "" and (tags .. "  ") or "") .. (e.comment or ""))
 end
 
@@ -606,6 +608,7 @@ local function setGroupRow(r, d)
     .. (tags ~= "" and ("  " .. tags) or "") .. (ct ~= "" and ("  " .. ct) or ""))
   local sub = "|cffaaaaaa" .. g.activity .. "|r" .. rangeText(ns.Journal.Range(nil, g.activity))
   if g.comment ~= "" then sub = sub .. "  |cff40ff40" .. g.comment .. "|r" end
+  if d.filtered then sub = "|cffff7f7f" .. d.filtered .. "|r  " .. sub end
   r.sub:SetText(sub)
   r:SetAlpha((d.filtered and 0.4) or (d.contacted and 0.6) or 1)
   r.edge:SetShown(d.needsMe and not d.filtered)

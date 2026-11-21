@@ -215,13 +215,16 @@ function Core.BuildList(opts)
       and (e.role ~= "TANK" or db.showTanks or (opts and opts.allRoles))
       and e.role ~= nil
     local social = keep and ns.Social.Info(e.name)
-    local filtered
+    local filtered, why   -- why = short reason shown in the Note column
     if keep and lo and e.level and (e.level < lo or e.level > hi) then
       filtered = "level " .. e.level .. " is outside " .. lo .. "-" .. hi
+      why = (e.level < lo and "too low" or "too high") .. " (" .. lo .. "-" .. hi .. ")"
     elseif keep and wantDungeon and e.dungeon and e.dungeon ~= wantDungeon then
       filtered = "asking for " .. e.dungeon      -- chat LFG naming another dungeon
+      why = "wants " .. e.dungeon
     elseif keep and social and social.avoid then
       filtered = "you marked them avoid"
+      why = "avoid"
       if db.hideAvoided then keep = false; hidden = hidden + 1 end
     end
     if keep and filtered and (strict or not db.greyFiltered) then
@@ -240,6 +243,7 @@ function Core.BuildList(opts)
         contacted = Core.Contacted(e.name),
         social = social or nil,
         filtered = filtered,
+        why = why,
         proximity = dungeon and ns.Journal.Proximity(e.zone, dungeon),
       }
       if e.role ~= "DAMAGER" or score == nil or score <= db.maxScore then

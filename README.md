@@ -21,7 +21,7 @@ The TOC lists interface `11507, 16001`. If the client says "out of date", run `/
 - **Needs my role** (Groups tab): open slots for your role pulse, groups with one get a green edge, and with the checkbox on, groups without one are greyed at the end.
 - **Join** (Groups tab): sends your group message to the leader right away and accepts that leader's invite automatically for the next 5 minutes. `W` still only types the message so you can edit it first.
 - **Sorting:** click the Name, Level, Rival or Zone header to sort by it, and click again to flip the order. Healers, tanks and DPS keep their own sections.
-- **Greyed, not hidden:** players outside the level range, asking for another dungeon, or marked avoid stay listed, greyed at the end of their section, with the reason in their tooltip. Options can hide them instead.
+- **Greyed, not hidden:** players outside the level range, asking for another dungeon, or marked avoid stay listed, greyed at the end of their section. The reason (e.g. `too low (44-54)`) leads their Note column and is in their tooltip. Options can hide them instead.
 - **Clear** (or `/rivals clear`) empties the player and group lists and closes the group suggestion. The lists stay empty until your next search comes back. `Close` on the suggestion header closes just the suggestion.
 - **Contacted players:** anyone you whisper or invite gets dimmed with a `w` or `inv` tag for 2 hours, so you don't message them twice.
 - **Resize** the window from the bottom-right corner. The size is saved.
