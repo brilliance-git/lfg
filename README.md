@@ -60,11 +60,8 @@ All tuning lives in `Data.lua` (`SPECS`, `STAT_SIM`, `WEIGHTS`, `SPEC_KEYWORDS`)
 - The log is saved in `WTF/Account/<account>/SavedVariables/LFGRivals.lua` (`log` = this session, `logPrev` = last session).
 - If the game blocks the addon's search ("Interface action failed because of an AddOn"), LFG Rivals stops trying for the rest of the session. Search in Blizzard's LFG window instead and the results still fill this window.
 
-## WoW Forever: addon searches are blocked
+## Searching on WoW Forever
 
-WoW Forever 1.60.1 blocks addons from calling `C_LFGList.Search` at all, even from a click. LFG Rivals detects this the first time it happens and remembers it for that client build (`/rivals unblock` tries again). From then on:
+Confirmed on 1.60.1 (build 71037): addons may call `C_LFGList.Search(categoryID, 0, 0, nil, nil, nil, activityIDs)` **once per click or key press**. A second call in the same key press is blocked ("Interface action failed because of an AddOn"). LFG Rivals makes exactly one call.
 
-- **Refresh** and the **"Refresh (search)" keybind** are secure buttons that press *Blizzard's own* LFG refresh button, which the game allows. Open Blizzard's LFG window once per session so that button exists.
-- Searches use the category and dungeon picked in **Blizzard's** LFG window, so LFG Rivals hides its own pickers.
-- Auto-refresh is off, because a timer or keystroke hook can't press a secure button.
-- The LFG Rivals window can't be opened or closed by slash command or keybind in combat. Esc still closes it.
+If the client ever does block a search, LFG Rivals remembers it for that client build and stops trying, so the popup doesn't repeat. Search in Blizzard's LFG window in the meantime (results still show here), or type `/rivals unblock` to retry.

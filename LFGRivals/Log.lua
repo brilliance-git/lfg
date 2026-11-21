@@ -11,9 +11,11 @@ ns.Log = Log
 local MAX = 400
 Log.lines = {}
 
+-- Wall clock plus the game's uptime clock (GetTime). The fraction used to come
+-- from a different clock than the seconds, so lines looked out of order.
 local function stamp()
   local t = (GetTime and GetTime()) or 0
-  return (date and date("%H:%M:%S") or "") .. string.format(".%03d", math.floor((t % 1) * 1000))
+  return (date and date("%H:%M:%S") or "") .. string.format(" t=%.3f", t)
 end
 
 -- Turn any values into one readable string (tables shallowly).

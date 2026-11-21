@@ -384,7 +384,7 @@ local function updatePoll()
   pollBtn:SetText(secs > 0 and ("Auto: " .. secs .. "s") or "Auto: off")
   local left, due = ns.Core.PollStatus()
   if ns.Sources.searchBlocked then
-    statusText:SetText("|cffffd100Refresh / keybind presses Blizzard's LFG refresh (no auto-refresh here).|r")
+    statusText:SetText("|cffff6060Addon searches blocked - see /rivals log.|r")
   elseif not left then
     statusText:SetText("|cff888888Auto-refresh off.|r")
   elseif due then
@@ -427,9 +427,7 @@ local function build()
   frame:SetMovable(true)
   frame:EnableMouse(true)
   frame:RegisterForDrag("LeftButton")
-  frame:SetScript("OnDragStart", function(self)
-    if not InCombatLockdown() then self:StartMoving() end   -- holds a secure button
-  end)
+  frame:SetScript("OnDragStart", frame.StartMoving)
   frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
   frame:SetFrameStrata("MEDIUM")
   tinsert(UISpecialFrames, "LFGRivalsFrame")
@@ -453,37 +451,11 @@ local function build()
   specBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   specBtn:SetScript("OnClick", function(_, btn) ns.Core.CycleSpec(btn == "RightButton" and -1 or 1); UI.Refresh() end)
 
-  -- Secure Refresh: when the client blocks addon searches, this "clicks"
-  -- Blizzard's own LFG refresh button from secure code, which is allowed.
-  -- Keybind: Key Bindings > AddOns > LFG Rivals > "Refresh (search)".
-  refreshBtn = CreateFrame("Button", "LFGRivalsSecureRefresh", frame,
-    "SecureActionButtonTemplate,UIPanelButtonTemplate")
-  refreshBtn:SetSize(80, 18)
-  refreshBtn:SetText("Refresh")
+  -- One search per click/keypress is allowed (a second call in the same
+  -- keypress is what got blocked in v0.2).
+  refreshBtn = smallButton(frame, "Refresh", 80)
   refreshBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, ROW1)
-  refreshBtn:RegisterForClicks("AnyUp")
-  refreshBtn:SetAttribute("type", "click")
-  refreshBtn:SetScript("PreClick", function(self)
-    if InCombatLockdown() then return end            -- attributes are locked in combat
-    if ns.Sources.searchBlocked then
-      local btn, label = ns.Sources.FindBlizzardRefresh()
-      self:SetAttribute("clickbutton", btn)
-      self.via = label
-    else
-      self:SetAttribute("clickbutton", nil)
-      self.via = nil
-    end
-  end)
-  refreshBtn:SetScript("PostClick", function(self)
-    if not ns.Sources.searchBlocked then
-      ns.Core.ManualRefresh("refresh button")
-    elseif self.via then
-      ns.Log.Add("refresh", "secure click on Blizzard's", self.via)
-    else
-      ns.Log.Add("refresh", "secure click: no Blizzard LFG refresh button found")
-      ns.Core.print("open Blizzard's LFG window once so its refresh button exists, then try again.")
-    end
-  end)
+  refreshBtn:SetScript("OnClick", function() ns.Core.ManualRefresh("refresh button") end)
 
   pollBtn = smallButton(frame, "", 84)
   pollBtn:SetPoint("RIGHT", refreshBtn, "LEFT", -4, 0)
@@ -516,7 +488,7 @@ local function build()
   -- refresh searches whatever is selected in Blizzard's LFG window.
   searchHint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   searchHint:SetPoint("TOPLEFT", frame, "TOPLEFT", 66, ROW2 - 9)
-  searchHint:SetText("Uses the dungeon picked in Blizzard's LFG window (addon searches are blocked here).")
+  searchHint:SetText("Addon searches were blocked - search in Blizzard's LFG window. (/rivals unblock to retry)")
 
   -- Row 3: tabs + toggles
   playersTab = smallButton(frame, "Players", 80, 22)
@@ -630,12 +602,6 @@ end
 
 function UI.Toggle()
   UI.Build()
-  -- The window holds a secure button, so only Blizzard code (Esc) may
-  -- show/hide it during combat.
-  if InCombatLockdown() then
-    ns.Core.print("can't open or close the window in combat (Esc still closes it).")
-    return
-  end
   frame:SetShown(not frame:IsShown())
 end
 
@@ -643,8 +609,9 @@ function UI.IsShown()
   return frame and frame:IsShown()
 end
 
--- Keybindings (Bindings.xml). The Refresh binding clicks the secure button.
+-- Keybindings (Bindings.xml)
 BINDING_HEADER_LFGRIVALS = "LFG Rivals"
 BINDING_NAME_LFGRIVALS_TOGGLE = "Toggle window"
-_G["BINDING_NAME_CLICK LFGRivalsSecureRefresh:LeftButton"] = "Refresh (search)"
+BINDING_NAME_LFGRIVALS_REFRESH = "Refresh (search)"
 function LFGRivals_Toggle() UI.Toggle() end
+function LFGRivals_Refresh() ns.Core.ManualRefresh("keybind") end

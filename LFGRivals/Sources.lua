@@ -214,8 +214,13 @@ function Sources.ScanGroupFinder()
   Sources.lastScan = { at = GetTime(), total = #results, parsed = added }
   local nGroups = 0
   for _ in pairs(Sources.groups) do nGroups = nGroups + 1 end
-  ns.Log.Add("scan", #results, "results from client,", added - nGroups, "solo players,", nGroups, "groups;",
-    "dropped: noInfo", drop.noInfo, "delisted", drop.delisted, "noName", drop.noName)
+  -- Only log when the summary changes (updates arrive one listing at a time).
+  local summary = ns.Log.Fmt(#results, "results from client,", added - nGroups, "solo players,", nGroups,
+    "groups; dropped: noInfo", drop.noInfo, "delisted", drop.delisted, "noName (name not loaded yet)", drop.noName)
+  if summary ~= Sources.lastSummary then
+    Sources.lastSummary = summary
+    ns.Log.Add("scan", summary)
+  end
   -- Raw dump of the first dropped listing, once per distinct reason, to see why.
   if firstDrop and firstDrop:sub(1, 6) ~= (Sources.lastDropKind or "") then
     Sources.lastDropKind = firstDrop:sub(1, 6)
@@ -299,33 +304,6 @@ local function searchPicked()
   return false
 end
 
--- Blizzard's own LFG refresh button, if this client has one loaded. A secure
--- button that "clicks" it runs Blizzard's search untainted, which works even
--- when addons are blocked from calling C_LFGList.Search themselves.
-function Sources.FindBlizzardRefresh()
-  local function usable(b) return type(b) == "table" and type(b.Click) == "function" end
-  local known = {
-    { "LFGBrowseFrame.RefreshButton", LFGBrowseFrame and LFGBrowseFrame.RefreshButton },
-    { "LFGBrowseFrameRefreshButton", _G.LFGBrowseFrameRefreshButton },
-    { "LFGListFrame.SearchPanel.RefreshButton",
-      LFGListFrame and LFGListFrame.SearchPanel and LFGListFrame.SearchPanel.RefreshButton },
-    { "LFGListFrameSearchPanelRefreshButton", _G.LFGListFrameSearchPanelRefreshButton },
-  }
-  for _, c in ipairs(known) do
-    if usable(c[2]) then return c[2], c[1] end
-  end
-  -- Unknown layout: look for a RefreshButton on any Blizzard LFG frame.
-  for name, v in pairs(_G) do
-    if type(name) == "string" and name:find("LFG") and not name:find("^LFGRivals")
-       and type(v) == "table" and type(v.GetObjectType) == "function" then
-      if usable(v.RefreshButton) then return v.RefreshButton, name .. ".RefreshButton" end
-      if type(v.SearchPanel) == "table" and usable(v.SearchPanel.RefreshButton) then
-        return v.SearchPanel.RefreshButton, name .. ".SearchPanel.RefreshButton"
-      end
-    end
-  end
-  return nil, nil
-end
 
 -- Log every call to C_LFGList.Search, including Blizzard's own (and other
 -- addons'), so we can see which arguments this client's UI actually uses.
@@ -434,9 +412,7 @@ function Sources.RequestRefresh(why)
   ns.Log.Add("refresh", "requested by", why or "?")
   if Sources.searchBlocked then
     -- Every further try would just pop "Interface action failed" again.
-    -- (Clicking Blizzard's button from addon code is just as blocked; only the
-    -- secure Refresh button / keybind can do that.)
-    ns.Log.Add("refresh", "skipped: client blocks addon searches")
+    ns.Log.Add("refresh", "skipped: client blocked addon searches (/rivals unblock to retry)")
     return false
   end
   return searchPicked()

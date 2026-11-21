@@ -205,14 +205,28 @@ function Core.ManualRefresh(why)
   scheduleNext()
   if not Sources.RequestRefresh(why or "click") then
     if Sources.searchBlocked then
-      print("addon searches are blocked here. Open Blizzard's LFG window once (so its refresh button"
-        .. " exists), then use the Refresh button in LFG Rivals. (/rivals log for details)")
+      print("addon searches were blocked by the client - search in Blizzard's LFG window"
+        .. " (results still show here), or /rivals unblock to retry.")
     else
       print("couldn't start a search - pick a category at the top of the window. (/rivals log for details)")
     end
   end
-  Sources.ScanGroupFinder()
+  -- No scan here: results arrive with LFG_LIST_SEARCH_RESULTS_RECEIVED, and
+  -- scanning now would briefly show an empty list.
   markDirty()
+end
+
+-- The client fires LFG_LIST_SEARCH_RESULT_UPDATED once per listing; collapse a
+-- burst into one scan.
+local scanPending = false
+local function scheduleScan()
+  if scanPending then return end
+  scanPending = true
+  C_Timer.After(0.2, function()
+    scanPending = false
+    Sources.ScanGroupFinder()
+    markDirty()
+  end)
 end
 
 function Core.SetPollInterval(secs)
@@ -309,8 +323,8 @@ f:SetScript("OnEvent", function(_, event, ...)
       Sources.searchBlocked = true
       LFGRivalsDB.blockedBuild = select(2, GetBuildInfo())
       poll.due = false
-      print("this client doesn't let addons start LFG searches. The Refresh button (and its keybind)"
-        .. " now press Blizzard's own LFG refresh instead. Auto-refresh can't work here.")
+      print("the client blocked an LFG search from LFG Rivals. Addon searches are paused for this"
+        .. " client build - search in Blizzard's LFG window, or /rivals unblock to retry. (/rivals log)")
       markDirty()
     end
   elseif event == "LFG_LIST_SEARCH_FAILED" then
@@ -323,8 +337,7 @@ f:SetScript("OnEvent", function(_, event, ...)
       -- Any fresh search (ours, the keybind, or Blizzard's own UI) resets the timer.
       scheduleNext()
     end
-    Sources.ScanGroupFinder()
-    markDirty()
+    scheduleScan()
   elseif event == "CHARACTER_POINTS_CHANGED" or event == "PLAYER_TALENT_UPDATE" then
     Core.DetectMe()
     markDirty()
