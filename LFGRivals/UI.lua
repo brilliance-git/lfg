@@ -44,13 +44,22 @@ local function className(class)
   return class and (class:sub(1, 1) .. class:sub(2):lower()) or "?"
 end
 
+-- WoW Forever names contain spaces ("Abaddon Revantusk"), so "/w <name>"
+-- would whisper "Abaddon" with the message "Revantusk". SendTell sets the
+-- whole name as the whisper target instead.
 local function whisper(name)
-  local cmd = "/w " .. name .. " "
-  if ChatFrame_OpenChat then ChatFrame_OpenChat(cmd)
-  elseif ChatFrameUtil and ChatFrameUtil.OpenChat then ChatFrameUtil.OpenChat(cmd) end
+  ns.Log.Add("ui", "whisper", name)
+  if ChatFrame_SendTell then
+    ChatFrame_SendTell(name)
+  elseif ChatFrameUtil and ChatFrameUtil.SendTell then
+    ChatFrameUtil.SendTell(name)
+  elseif ChatFrame_OpenChat then
+    ChatFrame_OpenChat("/w " .. name .. " ")
+  end
 end
 
 local function invite(name)
+  ns.Log.Add("ui", "invite", name)
   if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(name)
   elseif InviteUnit then InviteUnit(name) end
 end
