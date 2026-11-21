@@ -24,6 +24,35 @@ local function normRole(r)
   return nil
 end
 
+-- {tank=, healer=, dps=} style tables (bools or counts, any key casing).
+-- Healer wins, since that's who we're hunting for; tank only if nothing else.
+local function rolesFromTable(t)
+  if type(t) ~= "table" then return nil end
+  local function on(...)
+    for i = 1, select("#", ...) do
+      local v = select(i, ...)
+      if v == true or (type(v) == "number" and v > 0) then return true end
+    end
+    return false
+  end
+  if on(t.healer, t.HEALER, t.Healer, t.heal) then return "HEALER" end
+  if on(t.dps, t.DPS, t.damager, t.DAMAGER, t.Damager) then return "DAMAGER" end
+  if on(t.tank, t.TANK, t.Tank) then return "TANK" end
+  return nil
+end
+
+local function roleFromText(lower)
+  local padded = " " .. lower .. " "
+  if padded:find("heal") or padded:find("%f[%a]resto%f[%A]") or padded:find("%f[%a]disc%f[%A]")
+     or padded:find("%f[%a]holy%f[%A]") then
+    return "HEALER"
+  end
+  if padded:find("%f[%a]tank%f[%A]") or padded:find("%f[%a]prot%f[%A]") or padded:find("%f[%a]bear%f[%A]") then
+    return "TANK"
+  end
+  return "DAMAGER"
+end
+
 ---------------------------------------------------------------------------
 -- Group Finder
 ---------------------------------------------------------------------------
@@ -63,6 +92,47 @@ local function leaderExtra(resultID)
   return nil
 end
 
+-- name, maxPlayers for an activity ID.
+local function activityInfo(id)
+  if not id then return nil, nil end
+  if C_LFGList.GetActivityInfoTable then
+    local ok, t = pcall(C_LFGList.GetActivityInfoTable, id)
+    if ok and type(t) == "table" then return t.fullName or t.shortName, t.maxNumPlayers end
+  end
+  if C_LFGList.GetActivityInfo then
+    local ok, name, _, _, _, _, _, _, maxPlayers = pcall(C_LFGList.GetActivityInfo, id)
+    if ok then
+      if type(name) == "table" then return name.fullName, name.maxNumPlayers end
+      return name, maxPlayers
+    end
+  end
+  return nil, nil
+end
+
+-- Everyone in a listing: { {role, class, name}, ... }. Falls back to role
+-- counts (no classes) when per-member info isn't available.
+local function groupMembers(resultID, size)
+  local members = {}
+  for i = 1, size do
+    local m = memberInfo(resultID, i)
+    if m and (m.role or m.class) then
+      members[#members + 1] = { role = normRole(m.role), class = m.class, name = m.name, level = m.level }
+    end
+  end
+  if #members == 0 and C_LFGList.GetSearchResultMemberCounts then
+    local ok, c = pcall(C_LFGList.GetSearchResultMemberCounts, resultID)
+    if ok and type(c) == "table" then
+      for role, key in pairs({ TANK = "TANK", HEALER = "HEALER", DAMAGER = "DAMAGER" }) do
+        for _ = 1, (tonumber(c[key]) or 0) do members[#members + 1] = { role = role } end
+      end
+    end
+  end
+  return members
+end
+
+-- groups[resultID] = { leader, leaderClass, activity, comment, size, max, members }
+Sources.groups = {}
+
 function Sources.ScanGroupFinder()
   if not (C_LFGList and C_LFGList.GetSearchResults and C_LFGList.GetSearchResultInfo) then return 0 end
 
@@ -70,6 +140,7 @@ function Sources.ScanGroupFinder()
   for k, e in pairs(Sources.entries) do
     if e.source == "finder" then Sources.entries[k] = nil end
   end
+  wipe(Sources.groups)
 
   local ok, _, results = pcall(C_LFGList.GetSearchResults)
   if not ok or type(results) ~= "table" then return 0 end
@@ -77,26 +148,56 @@ function Sources.ScanGroupFinder()
   local added = 0
   for _, resultID in ipairs(results) do
     local okInfo, info = pcall(C_LFGList.GetSearchResultInfo, resultID)
-    if okInfo and type(info) == "table" and not info.isDelisted and info.leaderName then
+    if okInfo and type(info) == "table" and not info.isDelisted then
       local size = info.numMembers or 1
       local m = memberInfo(resultID, 1) or {}
       local extra = leaderExtra(resultID) or {}
-      local role = normRole(m.role or extra.assignedRole or extra.role)
-      local entry = {
-        name = shortName(info.leaderName),
-        class = m.class or extra.classFilename,
+      local name = info.leaderName or m.name or extra.name
+      local class = m.class or extra.classFilename or extra.class
+      local comment = info.comment or info.name or ""
+      -- Solo listers pick the roles they *want* rather than having an assigned one,
+      -- so check wanted roles first, then assigned role, then the note text.
+      local role = rolesFromTable(extra.lfgRoles) or rolesFromTable(info.lfgRoles)
+        or rolesFromTable(m.lfgRoles) or normRole(m.role or extra.assignedRole or extra.role)
+      if not role and size <= 1 and C_LFGList.GetSearchResultMemberCounts then
+        local okC, counts = pcall(C_LFGList.GetSearchResultMemberCounts, resultID)
+        if okC then role = rolesFromTable(counts) end
+      end
+      role = role or roleFromText(comment:lower())
+      if class and #ns.Data.SpecsForRole(class, role) == 0 then role = "DAMAGER" end
+
+      local entry = name and {
+        name = shortName(name),
+        class = class,
         role = role,
         specName = m.specName or extra.specName,
-        level = m.level or extra.level,
-        comment = info.comment or info.name or "",
+        level = m.level or extra.level or info.leaderLevel or info.level,
+        comment = comment,
         source = "finder",
         groupSize = size,
         seen = GetTime and GetTime() or 0,
       }
-      Sources.entries["finder:" .. entry.name] = entry
-      added = added + 1
+      if entry and size <= 1 then
+        Sources.entries["finder:" .. entry.name] = entry
+        added = added + 1
+      elseif size > 1 then
+        local actID = info.activityID or (type(info.activityIDs) == "table" and info.activityIDs[1])
+        local actName, maxPlayers = activityInfo(actID)
+        Sources.groups[resultID] = {
+          id = resultID,
+          leader = name and shortName(name) or "?",
+          leaderClass = class,
+          activity = actName or info.name or "",
+          comment = info.comment or "",
+          size = size,
+          max = maxPlayers or 5,
+          members = groupMembers(resultID, size),
+        }
+        added = added + 1
+      end
     end
   end
+  Sources.lastScan = { at = GetTime(), total = #results, parsed = added }
   return added
 end
 
@@ -155,11 +256,78 @@ local function searchPicked()
   else
     for _, a in ipairs(Sources.GetActivities(db.categoryID)) do activityIDs[#activityIDs + 1] = a.id end
   end
+  local s = { at = GetTime(), category = db.categoryID, activities = #activityIDs }
+  Sources.lastSearch = s
   -- Classic-style browser: Search(categoryID, activityIDs)
-  if pcall(C_LFGList.Search, db.categoryID, activityIDs) then return true end
+  local ok, err = pcall(C_LFGList.Search, db.categoryID, activityIDs)
+  if ok then s.ok, s.how = true, "classic"; return true end
+  s.err1 = tostring(err)
   -- Retail-style: Search(categoryID, filter, preferredFilters, languageFilter, crossFaction, advanced, activityIDs)
-  if pcall(C_LFGList.Search, db.categoryID, 0, 0, nil, nil, nil, activityIDs) then return true end
+  ok, err = pcall(C_LFGList.Search, db.categoryID, 0, 0, nil, nil, nil, activityIDs)
+  if ok then s.ok, s.how = true, "retail"; return true end
+  s.err2 = tostring(err)
   return false
+end
+
+---------------------------------------------------------------------------
+-- /rivals debug: dump what the client actually gives us.
+---------------------------------------------------------------------------
+
+local function flat(v, depth)
+  depth = depth or 0
+  if type(v) ~= "table" then return tostring(v) end
+  if depth > 1 then return "{...}" end
+  local parts = {}
+  for k, x in pairs(v) do
+    parts[#parts + 1] = tostring(k) .. "=" .. flat(x, depth + 1)
+    if #parts >= 14 then parts[#parts + 1] = "..."; break end
+  end
+  return "{" .. table.concat(parts, ", ") .. "}"
+end
+
+function Sources.Debug(out)
+  local L = C_LFGList
+  out("API: Search=" .. tostring(L and L.Search ~= nil)
+    .. " GetSearchResults=" .. tostring(L and L.GetSearchResults ~= nil)
+    .. " MemberInfo=" .. tostring(L and L.GetSearchResultMemberInfo ~= nil)
+    .. " PlayerInfo=" .. tostring(L and L.GetSearchResultPlayerInfo ~= nil)
+    .. " LeaderInfo=" .. tostring(L and L.GetSearchResultLeaderInfo ~= nil)
+    .. " MemberCounts=" .. tostring(L and L.GetSearchResultMemberCounts ~= nil))
+  out("Picked: category=" .. tostring(LFGRivalsDB.categoryID) .. " activity=" .. tostring(LFGRivalsDB.activityID))
+  local s = Sources.lastSearch
+  if s then
+    out(string.format("Last search %.0fs ago: ok=%s via=%s activities=%d err1=%s err2=%s",
+      GetTime() - s.at, tostring(s.ok), tostring(s.how), s.activities, tostring(s.err1), tostring(s.err2)))
+  else
+    out("No search attempted by LFG Rivals yet.")
+  end
+  local sc = Sources.lastScan
+  if sc then
+    out(string.format("Last scan %.0fs ago: %d results from client, %d parsed",
+      GetTime() - sc.at, sc.total, sc.parsed))
+  end
+  if not (L and L.GetSearchResults) then return end
+  local ok, total, results = pcall(L.GetSearchResults)
+  out("GetSearchResults: ok=" .. tostring(ok) .. " total=" .. tostring(total)
+    .. " n=" .. tostring(type(results) == "table" and #results or results))
+  if not ok or type(results) ~= "table" then return end
+  for i = 1, math.min(2, #results) do
+    local id = results[i]
+    local _, info = pcall(L.GetSearchResultInfo, id)
+    out("#" .. i .. " info: " .. flat(info))
+    if L.GetSearchResultMemberInfo then
+      out("#" .. i .. " member1: " .. flat({ pcall(L.GetSearchResultMemberInfo, id, 1) }))
+    end
+    if L.GetSearchResultPlayerInfo then
+      out("#" .. i .. " player1: " .. flat({ pcall(L.GetSearchResultPlayerInfo, id, 1) }))
+    end
+    if L.GetSearchResultLeaderInfo then
+      out("#" .. i .. " leader: " .. flat({ pcall(L.GetSearchResultLeaderInfo, id) }))
+    end
+    if L.GetSearchResultMemberCounts then
+      out("#" .. i .. " counts: " .. flat({ pcall(L.GetSearchResultMemberCounts, id) }))
+    end
+  end
 end
 
 -- Start a search (needs a hardware click/keypress, which our Refresh button,
@@ -194,18 +362,6 @@ local function isLFGMessage(lower)
     return false
   end
   return true
-end
-
-local function roleFromText(lower)
-  local padded = " " .. lower .. " "
-  if padded:find("heal") or padded:find("%f[%a]resto%f[%A]") or padded:find("%f[%a]disc%f[%A]")
-     or padded:find("%f[%a]holy%f[%A]") then
-    return "HEALER"
-  end
-  if padded:find("%f[%a]tank%f[%A]") or padded:find("%f[%a]prot%f[%A]") or padded:find("%f[%a]bear%f[%A]") then
-    return "TANK"
-  end
-  return "DAMAGER"
 end
 
 function Sources.OnChat(text, sender, guid)

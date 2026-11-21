@@ -10,8 +10,8 @@ local DEFAULTS = {
   spec = nil,           -- my spec key
   specLocked = false,   -- true once I pick a spec by hand
   showTanks = false,
-  soloOnly = true,
   useChat = true,
+  tab = "players",      -- "players" or "groups"
   maxScore = 100,       -- hide DPS that compete more than this
   pollInterval = 30,    -- seconds between auto-refreshes; 0 = off
   categoryID = nil,     -- Group Finder category to search (e.g. Dungeons)
@@ -19,8 +19,8 @@ local DEFAULTS = {
   minimap = { angle = 200, hide = false },
 }
 
-Core.POLL_STEPS = { 0, 15, 30, 60, 120 }
-Core.MIN_POLL = 15      -- Blizzard throttles faster searches anyway
+Core.POLL_STEPS = { 0, 5, 10, 15, 30 }
+Core.MIN_POLL = 5       -- faster than this just gets throttled by the server
 
 local function print(msg)
   DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffLFG Rivals|r: " .. msg)
@@ -125,7 +125,6 @@ function Core.BuildList()
   for _, e in pairs(Sources.entries) do
     local keep = e.name ~= myName
       and (e.source ~= "chat" or db.useChat)
-      and (not db.soloOnly or (e.groupSize or 1) <= 1)
       and (e.role ~= "TANK" or db.showTanks)
       and e.role ~= nil
     if keep then
@@ -159,6 +158,29 @@ function Core.BuildList()
     if sa ~= sb then return sa < sb end
     if a.certain ~= b.certain then return a.certain end
     return (a.entry.name or "") < (b.entry.name or "")
+  end)
+  return out
+end
+
+-- Groups tab: each listed group with its makeup. Rival = the most any current
+-- member competes with you for gear (unknown classes ignored). Lowest first.
+function Core.BuildGroups()
+  local meClass, meSpec = Core.Me()
+  local out = {}
+  for _, g in pairs(Sources.groups) do
+    local worst
+    for _, m in ipairs(g.members) do
+      if m.class then
+        local s = Data.CompetitionAny(meClass, meSpec, m.class, Data.GuessSpecs(m.class, m.role, nil))
+        if s and (not worst or s > worst) then worst = s end
+      end
+    end
+    out[#out + 1] = { group = g, score = worst }
+  end
+  table.sort(out, function(a, b)
+    local sa, sb = a.score or 999, b.score or 999
+    if sa ~= sb then return sa < sb end
+    return a.group.size < b.group.size
   end)
   return out
 end
@@ -300,12 +322,14 @@ SlashCmdList.LFGRIVALS = function(msg)
     else
       print("auto-refresh off.")
     end
+  elseif msg == "debug" then
+    Sources.Debug(print)
   elseif msg == "minimap" then
     print(ns.Minimap.Toggle() and "minimap button shown." or "minimap button hidden (/rivals minimap to bring it back).")
   elseif msg == "help" then
     print("/rivals - toggle window | /rivals reset - re-detect spec | /rivals max <0-100> - hide DPS above that score"
       .. " | /rivals poll <seconds|off> - auto-refresh cadence (min " .. Core.MIN_POLL .. "s)"
-      .. " | /rivals minimap - show/hide minimap button")
+      .. " | /rivals minimap - show/hide minimap button | /rivals debug - dump Group Finder data")
   else
     ns.UI.Toggle()
   end

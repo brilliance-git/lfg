@@ -13,9 +13,10 @@ The TOC lists interface `11507, 16001`. If the client says "out of date", run `/
 - `/rivals` (or `/lfgr`) toggles the window, and so does the **minimap button** (left-click). Right-click the button to search now, drag it to move it around the minimap, and use `/rivals minimap` to hide or show it.
 - **Search:** pick a category (Dungeons, Raids…) and an activity (one specific dungeon, or "All"), like Blizzard's LFG browser. Picking one searches right away, and later refreshes reuse that pick.
 - **Me:** click the class or spec button to cycle forward, right-click to go back. Your spec is auto-detected from talents until you pick one by hand (`/rivals reset` re-detects it).
-- Click a row to whisper, shift-click to invite. The `W` and `+` buttons do the same.
-- Hover a row for the full LFG note, the likely spec(s) and the score.
-- Toggles: show tanks, solo players only (hides groups already formed), include chat LFG.
+- **Players tab:** solo listers and chat LFG. Columns are role, name, level, Rival score and note. Click a row to whisper, shift-click to invite. The `W` and `+` buttons do the same. Hover a row for the full note and the likely spec(s).
+- **Groups tab:** listed groups with a crown on the leader, the activity and note, role icons for current members, and faded icons for open slots (raids show counts instead). Groups are sorted by their *worst* gear rival for you, lowest first. Click a group to whisper the leader, and hover it for the full member list.
+- Toggles: show tanks (Players tab), include chat LFG.
+- `/rivals debug` prints what the Group Finder API returned. Paste it into an issue if search results don't show up.
 
 ## Where players come from
 
@@ -26,7 +27,7 @@ The TOC lists interface `11507, 16001`. If the client says "out of date", run `/
 
 Blizzard only lets a Group Finder search start from a real click or key press, so a plain timer can't search on its own. Instead:
 
-- Every *N* seconds (`Auto:` button, or `/rivals poll 30`, `/rivals poll off`; minimum 15s) a refresh becomes **due**.
+- Every *N* seconds (`Auto:` button cycles off/5/10/15/30s, or `/rivals poll 10`, `/rivals poll off`) a refresh becomes **due**.
 - The **next key you press** after that (W, a spell, anything, out of combat) fires the search. The key still does its normal thing.
 - Any search, whether yours, the keybind's or Blizzard's own UI, resets the timer.
 - There are also keybinds under *Key Bindings → AddOns → LFG Rivals* for "Toggle window" and "Refresh".
