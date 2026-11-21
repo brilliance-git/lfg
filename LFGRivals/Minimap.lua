@@ -56,7 +56,7 @@ function MM.Create()
       ns.UI.Toggle()
     end
   end)
-  btn:SetScript("OnDragStart", function(self) self:SetScript("OnUpdate", onDragUpdate) end)
+  btn:SetScript("OnDragStart", function(self) MM.SetFlash(false); self:SetScript("OnUpdate", onDragUpdate) end)
   btn:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
   btn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
@@ -70,6 +70,32 @@ function MM.Create()
 
   place()
   btn:SetShown(not LFGRivalsDB.minimap.hide)
+end
+
+-- Pulse the button after an alert, until you open the window.
+local glow, flashing = nil, false
+function MM.SetFlash(on)
+  if not btn then return end
+  if not glow then
+    glow = btn:CreateTexture(nil, "OVERLAY")
+    glow:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+    glow:SetBlendMode("ADD")
+    glow:SetAllPoints(btn)
+    glow:Hide()
+  end
+  if on == flashing then return end
+  flashing = on
+  if on then
+    local t = 0
+    glow:Show()
+    btn:SetScript("OnUpdate", function(_, elapsed)
+      t = t + elapsed
+      glow:SetAlpha(0.35 + 0.65 * math.abs(math.sin(t * 3)))
+    end)
+  else
+    glow:Hide()
+    btn:SetScript("OnUpdate", nil)
+  end
 end
 
 function MM.Toggle()

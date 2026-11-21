@@ -221,4 +221,83 @@ function Data.CompetitionAny(meClass, meSpec, otherClass, candidates)
   return math.floor(sum / #candidates + 0.5)
 end
 
+---------------------------------------------------------------------------
+-- Dungeon-aware model: score against the actual loot of one dungeon.
+-- profile.items = { { kind = "armor"|"acc"|"weapon", type = "plate"|"2h_sword"|...,
+--                     fam = { agi=, str=, tank=, spell=, heal= } (sums to 1, or nil) }, ... }
+---------------------------------------------------------------------------
+
+local function hasWeapon(spec, w)
+  spec._wset = spec._wset or {}
+  if spec._wset[w] == nil then
+    local found = false
+    for _, x in ipairs(spec.weapons) do if x == w then found = true; break end end
+    spec._wset[w] = found
+  end
+  return spec._wset[w]
+end
+
+-- 0..1: how much a spec wants one item.
+function Data.Desire(spec, item)
+  local typeFit
+  if item.kind == "armor" then
+    typeFit = spec.armor[item.type] or 0
+  elseif item.kind == "weapon" then
+    typeFit = hasWeapon(spec, item.type) and 1 or 0
+  else
+    typeFit = 1          -- rings, necks, trinkets, cloaks: anyone, if the stats fit
+  end
+  if typeFit == 0 then return 0 end
+  local statFit
+  if item.fam then
+    statFit = 0
+    local row = STAT_SIM[spec.stat]
+    for fam, share in pairs(item.fam) do statFit = statFit + share * (row[fam] or 0) end
+  else
+    -- Stats unknown (item not cached yet): type alone decides, accessories half.
+    statFit = item.kind == "acc" and 0.5 or 1
+  end
+  return typeFit * statFit
+end
+
+local function desires(profile, spec)
+  profile._desire = profile._desire or {}
+  local d = profile._desire[spec]
+  if not d then
+    d = { total = 0 }
+    for i, item in ipairs(profile.items) do
+      d[i] = Data.Desire(spec, item)
+      d.total = d.total + d[i]
+    end
+    profile._desire[spec] = d
+  end
+  return d
+end
+
+-- How much of this dungeon's loot `me` wants at all (0 = nothing for you here).
+function Data.WantedHere(profile, meSpec)
+  if not (profile and meSpec) then return nil end
+  return desires(profile, meSpec).total
+end
+
+-- 0..100: share of the loot I want that `other` also wants.
+function Data.CompetitionLoot(meSpec, otherSpec, profile)
+  local mine, theirs = desires(profile, meSpec), desires(profile, otherSpec)
+  if mine.total <= 0 then return 0 end
+  local shared = 0
+  for i = 1, #profile.items do shared = shared + math.min(mine[i], theirs[i]) end
+  return math.floor(100 * shared / mine.total + 0.5)
+end
+
+-- The one scoring entry point: dungeon loot when we have it, else the general model.
+function Data.Score(meClass, meSpec, otherClass, candidates, profile)
+  if not meSpec or not candidates or #candidates == 0 then return nil end
+  if not (profile and profile.items and #profile.items > 0) then
+    return Data.CompetitionAny(meClass, meSpec, otherClass, candidates)
+  end
+  local sum = 0
+  for _, s in ipairs(candidates) do sum = sum + Data.CompetitionLoot(meSpec, s, profile) end
+  return math.floor(sum / #candidates + 0.5)
+end
+
 return Data

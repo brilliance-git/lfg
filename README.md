@@ -11,12 +11,22 @@ The TOC lists interface `11507, 16001`. If the client says "out of date", run `/
 ## Use
 
 - `/rivals` (or `/lfgr`) toggles the window, and so does the **minimap button** (left-click). Right-click the button to search now, drag it to move it around the minimap, and use `/rivals minimap` to hide or show it.
-- **Search:** pick a category (Dungeons, Raids…) and an activity (one specific dungeon, or "All"), like Blizzard's LFG browser. Picking one searches right away, and later refreshes reuse that pick.
+- **Search:** pick a category (Dungeons, Raids…) and an activity (one specific dungeon, or "All"), like Blizzard's LFG browser. The game won't let an addon search from a dropdown pick, so picking makes a refresh due and the search runs on your next key press or Refresh click.
 - **Me:** click the class or spec button to cycle forward, right-click to go back. Your spec is auto-detected from talents until you pick one by hand (`/rivals reset` re-detects it).
 - **Players tab:** solo listers and chat LFG. Columns are role, name, level, Rival score and note. Click a row to whisper, shift-click to invite. The `W` and `+` buttons do the same. Hover a row for the full note and the likely spec(s).
-- **Groups tab:** listed groups with a crown on the leader, the activity and note, role icons for current members, and faded icons for open slots (raids show counts instead). Groups are sorted by their *worst* gear rival for you, lowest first. Click a group to whisper the leader, and hover it for the full member list.
+- **Groups tab:** listed groups with a crown on the leader, the activity and note, role icons for current members (with a class-colored bar), and faded icons for open slots showing the role the group still wants (raids show counts instead). Hover an icon for that member's name, class, level and Rival score. Groups are sorted by their *worst* gear rival for you, lowest first. Click a group to whisper the leader.
+- **Build group:** suggests the best healer, tank and DPS for your open slots (lowest Rival first, counting who's already in your party). `Invite next` invites the next suggested player you haven't invited yet, one per click.
+- **Contacted players:** anyone you whisper or invite gets dimmed with a `w` or `inv` tag for 2 hours, so you don't message them twice.
+- **Resize** the window from the bottom-right corner. The size is saved.
 - Toggles: show tanks (Players tab), include chat LFG.
 - `/rivals debug` prints what the Group Finder API returned. Paste it into an issue if search results don't show up.
+
+## Options (`Options` button or `/rivals options`)
+
+- **Alerts:** when a new healer, or a DPS at or under your alert score (default 30), shows up while the window is closed, you get a chat line, a sound and a pulsing minimap button. `/rivals alerts` toggles them.
+- **Level filter:** only show players within *N* levels of you (`/rivals level 5`, `0` = off). Players with no known level (chat) are always shown.
+- **Hide DPS above** a Rival score (`/rivals max 60`).
+- **Whisper messages:** text typed into chat when you click `W`, one for players and one for group leaders. `{name}`, `{dungeon}`, `{role}` and `{me}` get filled in. You still press Enter to send.
 
 ## Where players come from
 
@@ -52,6 +62,17 @@ Examples, as a Combat Rogue: Mage 0, Fury Warrior 27, Hunter 67, Cat Druid 78, a
 When the spec isn't known (e.g. a Druid listed as DPS with no note), the score is the average over the possible specs, and the Spec column shows e.g. `Balance/Cat`.
 
 All tuning lives in `Data.lua` (`SPECS`, `STAT_SIM`, `WEIGHTS`, `SPEC_KEYWORDS`). The class list assumes Vanilla-style classes and specs.
+
+### Dungeon loot
+
+When you've picked one dungeon and the addon knows at least 4 of its drops, the score uses that dungeon's loot instead of the table above. Each drop counts by how much you'd want it (armor type or weapon type, times how well its stats fit your spec). A player's score is the share of *your* wanted drops that they'd also want. The line at the bottom of the window says which model is in use.
+
+Loot comes from two places:
+
+1. **The Dungeon Journal**, if the client has one (`EJ_*` functions).
+2. **Drops you've seen.** Every green-or-better equippable item you see drop in a dungeon (in your loot window or in loot chat) is saved per dungeon. Custom dungeons fill in as you run them.
+
+`/rivals loot` shows what's known for the picked dungeon.
 
 ## Troubleshooting
 

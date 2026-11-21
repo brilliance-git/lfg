@@ -109,6 +109,11 @@ local function activityInfo(id)
   return nil, nil
 end
 
+function Sources.ActivityName(id)
+  if not id or id == 0 or not C_LFGList then return nil end
+  return (activityInfo(id))
+end
+
 -- Everyone in a listing: { {role, class, name}, ... }. Falls back to role
 -- counts (no classes) when per-member info isn't available.
 local function groupMembers(resultID, size)
@@ -197,6 +202,15 @@ function Sources.ScanGroupFinder()
       elseif size > 1 then
         local actID = info.activityID or (type(info.activityIDs) == "table" and info.activityIDs[1])
         local actName, maxPlayers = activityInfo(actID)
+        -- Roles the group still wants (HEALER_REMAINING etc.), for empty slots.
+        local remaining
+        if C_LFGList.GetSearchResultMemberCounts then
+          local okC, c = pcall(C_LFGList.GetSearchResultMemberCounts, resultID)
+          if okC and type(c) == "table" then
+            remaining = { TANK = tonumber(c.TANK_REMAINING) or 0, HEALER = tonumber(c.HEALER_REMAINING) or 0,
+                          DAMAGER = tonumber(c.DAMAGER_REMAINING) or 0 }
+          end
+        end
         Sources.groups[resultID] = {
           id = resultID,
           leader = name and shortName(name) or "?",
@@ -206,6 +220,7 @@ function Sources.ScanGroupFinder()
           size = size,
           max = maxPlayers or 5,
           members = groupMembers(resultID, size),
+          remaining = remaining,
         }
         added = added + 1
       end
