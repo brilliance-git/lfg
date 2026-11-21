@@ -198,6 +198,9 @@ function Sources.ScanGroupFinder()
     end
   end
   Sources.lastScan = { at = GetTime(), total = #results, parsed = added }
+  local nGroups = 0
+  for _ in pairs(Sources.groups) do nGroups = nGroups + 1 end
+  ns.Log.Add("scan", #results, "results from client,", added - nGroups, "solo players,", nGroups, "groups")
   return added
 end
 
@@ -258,15 +261,64 @@ local function searchPicked()
   end
   local s = { at = GetTime(), category = db.categoryID, activities = #activityIDs }
   Sources.lastSearch = s
+  -- A blocked protected call does NOT raise a Lua error, so pcall "succeeds";
+  -- Core watches ADDON_ACTION_BLOCKED and flips Sources.searchBlocked.
+  Sources.inOurSearch = true
   -- Classic-style browser: Search(categoryID, activityIDs)
+  ns.Log.Add("search", "C_LFGList.Search(classic) category=", db.categoryID, "activityIDs=", activityIDs)
   local ok, err = pcall(C_LFGList.Search, db.categoryID, activityIDs)
-  if ok then s.ok, s.how = true, "classic"; return true end
+  if ok then
+    Sources.inOurSearch = false
+    s.ok, s.how = true, "classic"
+    ns.Log.Add("search", "classic call returned without error (may still be blocked)")
+    return true
+  end
   s.err1 = tostring(err)
+  ns.Log.Add("search", "classic call error:", s.err1)
   -- Retail-style: Search(categoryID, filter, preferredFilters, languageFilter, crossFaction, advanced, activityIDs)
   ok, err = pcall(C_LFGList.Search, db.categoryID, 0, 0, nil, nil, nil, activityIDs)
-  if ok then s.ok, s.how = true, "retail"; return true end
+  Sources.inOurSearch = false
+  if ok then
+    s.ok, s.how = true, "retail"
+    ns.Log.Add("search", "retail call returned without error (may still be blocked)")
+    return true
+  end
   s.err2 = tostring(err)
+  ns.Log.Add("search", "retail call error:", s.err2)
   return false
+end
+
+-- Log every call to C_LFGList.Search, including Blizzard's own (and other
+-- addons'), so we can see which arguments this client's UI actually uses.
+function Sources.InstallSpies()
+  if not (C_LFGList and C_LFGList.Search and hooksecurefunc) then
+    ns.Log.Add("spy", "C_LFGList.Search not hookable")
+    return
+  end
+  hooksecurefunc(C_LFGList, "Search", function(...)
+    local who = Sources.inOurSearch and "LFG Rivals" or "Blizzard/other addon"
+    local args = {}
+    for i = 1, select("#", ...) do args[#args + 1] = ns.Log.Fmt((select(i, ...))) end
+    ns.Log.Add("spy", "Search called by " .. who .. " args: (" .. table.concat(args, ", ") .. ")")
+  end)
+  ns.Log.Add("spy", "hooked C_LFGList.Search")
+end
+
+-- LFG-related frames this client has (to find Blizzard's search/refresh buttons).
+function Sources.FindLFGFrames()
+  local found = {}
+  for name, v in pairs(_G) do
+    if type(name) == "string" and (name:find("LFG") or name:find("GroupFinder"))
+       and type(v) == "table" and type(v.GetObjectType) == "function" then
+      local ok, kind = pcall(v.GetObjectType, v)
+      if ok and (kind == "Frame" or kind == "Button") and not name:find("^LFGRivals") then
+        local shown = v.IsShown and v:IsShown() and "shown" or "hidden"
+        found[#found + 1] = name .. "(" .. kind .. "," .. shown .. ")"
+      end
+    end
+  end
+  table.sort(found)
+  return found
 end
 
 ---------------------------------------------------------------------------
@@ -293,7 +345,13 @@ function Sources.Debug(out)
     .. " PlayerInfo=" .. tostring(L and L.GetSearchResultPlayerInfo ~= nil)
     .. " LeaderInfo=" .. tostring(L and L.GetSearchResultLeaderInfo ~= nil)
     .. " MemberCounts=" .. tostring(L and L.GetSearchResultMemberCounts ~= nil))
-  out("Picked: category=" .. tostring(LFGRivalsDB.categoryID) .. " activity=" .. tostring(LFGRivalsDB.activityID))
+  out("Picked: category=" .. tostring(LFGRivalsDB.categoryID) .. " activity=" .. tostring(LFGRivalsDB.activityID)
+    .. " searchBlocked=" .. tostring(Sources.searchBlocked))
+  local frames = Sources.FindLFGFrames()
+  for i = 1, #frames, 6 do
+    out("Frames: " .. table.concat(frames, " ", i, math.min(i + 5, #frames)))
+  end
+  if #frames == 0 then out("Frames: no LFG frames found") end
   local s = Sources.lastSearch
   if s then
     out(string.format("Last search %.0fs ago: ok=%s via=%s activities=%d err1=%s err2=%s",
@@ -333,16 +391,27 @@ end
 -- Start a search (needs a hardware click/keypress, which our Refresh button,
 -- keybind, minimap button and keystroke hook all provide). Uses the picked
 -- category/activity; falls back to re-running Blizzard's own last search.
-function Sources.RequestRefresh()
+function Sources.RequestRefresh(why)
+  ns.Log.Add("refresh", "requested by", why or "?")
+  if Sources.searchBlocked then
+    -- Every further try would just pop "Interface action failed" again.
+    ns.Log.Add("refresh", "skipped: client blocked our search earlier this session")
+    return false
+  end
   if searchPicked() then return true end
   local candidates = {
-    LFGBrowseFrame and LFGBrowseFrame.RefreshButton,                         -- Classic-style browser
-    LFGListFrame and LFGListFrame.SearchPanel and LFGListFrame.SearchPanel.RefreshButton, -- Retail-style
+    { "LFGBrowseFrame.RefreshButton", LFGBrowseFrame and LFGBrowseFrame.RefreshButton },
+    { "LFGListFrame.SearchPanel.RefreshButton",
+      LFGListFrame and LFGListFrame.SearchPanel and LFGListFrame.SearchPanel.RefreshButton },
   }
-  for _, btn in ipairs(candidates) do
+  for _, c in ipairs(candidates) do
+    local label, btn = c[1], c[2]
     if btn and btn.Click then
-      local ok = pcall(btn.Click, btn)
+      local ok, err = pcall(btn.Click, btn)
+      ns.Log.Add("refresh", "clicked", label, "ok=", ok, err)
       if ok then return true end
+    else
+      ns.Log.Add("refresh", label, "not present")
     end
   end
   return false
@@ -380,6 +449,7 @@ function Sources.OnChat(text, sender, guid)
   if class and #ns.Data.SpecsForRole(class, role) == 0 then role = "DAMAGER" end
 
   local name = shortName(sender)
+  ns.Log.Add("chat", name, class or "?class", role)
   Sources.entries["chat:" .. name] = {
     name = name, class = class, role = role, comment = text,
     source = "chat", groupSize = 1, seen = GetTime and GetTime() or 0,

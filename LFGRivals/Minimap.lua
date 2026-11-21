@@ -51,7 +51,7 @@ function MM.Create()
 
   btn:SetScript("OnClick", function(_, mouse)
     if mouse == "RightButton" then
-      ns.Core.ManualRefresh()          -- a real click, so the search is allowed
+      ns.Core.ManualRefresh("minimap right-click")
     else
       ns.UI.Toggle()
     end

@@ -52,3 +52,10 @@ Examples, as a Combat Rogue: Mage 0, Fury Warrior 27, Hunter 67, Cat Druid 78, a
 When the spec isn't known (e.g. a Druid listed as DPS with no note), the score is the average over the possible specs, and the Spec column shows e.g. `Balance/Cat`.
 
 All tuning lives in `Data.lua` (`SPECS`, `STAT_SIM`, `WEIGHTS`, `SPEC_KEYWORDS`). The class list assumes Vanilla-style classes and specs.
+
+## Troubleshooting
+
+- `/rivals log` opens a copyable log (Ctrl+A, Ctrl+C) of every search attempt, blocked action, Group Finder event and scan. `/rivals verbose` echoes it to chat as it happens.
+- The log also records every `C_LFGList.Search` call, including Blizzard's own, so running one search in Blizzard's LFG window shows the arguments this client uses.
+- The log is saved in `WTF/Account/<account>/SavedVariables/LFGRivals.lua` (`log` = this session, `logPrev` = last session).
+- If the game blocks the addon's search ("Interface action failed because of an AddOn"), LFG Rivals stops trying for the rest of the session. Search in Blizzard's LFG window instead and the results still fill this window.

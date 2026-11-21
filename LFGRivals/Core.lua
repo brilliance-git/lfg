@@ -201,10 +201,15 @@ local function scheduleNext()
 end
 
 -- Refresh button / keybind (always a hardware event).
-function Core.ManualRefresh()
+function Core.ManualRefresh(why)
   scheduleNext()
-  if not Sources.RequestRefresh() then
-    print("pick a category (e.g. Dungeons) at the top of the window first.")
+  if not Sources.RequestRefresh(why or "click") then
+    if Sources.searchBlocked then
+      print("this client doesn't let addons start LFG searches. Search in Blizzard's LFG window"
+        .. " instead; results show up here automatically. (/rivals log for details)")
+    else
+      print("couldn't start a search - pick a category at the top of the window. (/rivals log for details)")
+    end
   end
   Sources.ScanGroupFinder()
   markDirty()
@@ -239,13 +244,13 @@ if keyCatcher.SetPropagateKeyboardInput and keyCatcher.EnableKeyboard then
     if not poll.due then return end
     if InCombatLockdown and InCombatLockdown() then return end
     scheduleNext()
-    Sources.RequestRefresh()
+    Sources.RequestRefresh("keystroke")
   end)
   Core.keystrokeSupported = true
 end
 
 local function tick()
-  if not LFGRivalsDB or LFGRivalsDB.pollInterval <= 0 or poll.due then return end
+  if not LFGRivalsDB or LFGRivalsDB.pollInterval <= 0 or poll.due or Sources.searchBlocked then return end
   if GetTime() >= poll.nextAt then
     poll.due = true
     markDirty()
@@ -267,19 +272,46 @@ f:SetScript("OnEvent", function(_, event, ...)
     for k, v in pairs(DEFAULTS) do
       if LFGRivalsDB[k] == nil then LFGRivalsDB[k] = v end
     end
+    ns.Log.Attach(LFGRivalsDB)
+    local version, build, _, iface = GetBuildInfo()
+    ns.Log.Add("init", "client", version, "build", build, "interface", iface,
+      "addon", C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version")
+        or (GetAddOnMetadata and GetAddOnMetadata(ADDON, "Version")))
   elseif event == "PLAYER_LOGIN" then
     Core.DetectMe()
+    ns.Log.Add("init", "me:", LFGRivalsDB.class, LFGRivalsDB.spec, "poll:", LFGRivalsDB.pollInterval,
+      "category:", LFGRivalsDB.categoryID, "activity:", LFGRivalsDB.activityID)
     for _, ev in ipairs({ "LFG_LIST_SEARCH_RESULTS_RECEIVED", "LFG_LIST_SEARCH_RESULT_UPDATED",
+                          "LFG_LIST_SEARCH_FAILED", "LFG_LIST_AVAILABILITY_UPDATE",
+                          "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN",
                           "CHARACTER_POINTS_CHANGED", "PLAYER_TALENT_UPDATE", "CHAT_MSG_CHANNEL" }) do
-      pcall(f.RegisterEvent, f, ev)
+      local ok = pcall(f.RegisterEvent, f, ev)
+      if not ok then ns.Log.Add("init", "event not available:", ev) end
     end
+    Sources.InstallSpies()
     if type(LFGRivalsDB.minimap) ~= "table" then LFGRivalsDB.minimap = { angle = 200, hide = false } end
     ns.Minimap.Create()
     Sources.ScanGroupFinder()
     poll.nextAt = GetTime() + 5   -- first refresh on your first key press after login
     C_Timer.NewTicker(1, tick)
+  elseif event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
+    local addon, func = ...
+    ns.Log.Add("blocked", event, "addon=", addon, "function=", func)
+    if addon == ADDON and not Sources.searchBlocked then
+      Sources.searchBlocked = true
+      poll.due = false
+      print("the game blocked LFG Rivals from calling " .. tostring(func)
+        .. ". Addon searches are off for this session - search in Blizzard's LFG window and"
+        .. " results still show up here. (/rivals log for details)")
+      markDirty()
+    end
+  elseif event == "LFG_LIST_SEARCH_FAILED" then
+    ns.Log.Add("event", event, ...)
+  elseif event == "LFG_LIST_AVAILABILITY_UPDATE" then
+    ns.Log.Add("event", event)
   elseif event == "LFG_LIST_SEARCH_RESULTS_RECEIVED" or event == "LFG_LIST_SEARCH_RESULT_UPDATED" then
     if event == "LFG_LIST_SEARCH_RESULTS_RECEIVED" then
+      ns.Log.Add("event", event)
       -- Any fresh search (ours, the keybind, or Blizzard's own UI) resets the timer.
       scheduleNext()
     end
@@ -323,13 +355,19 @@ SlashCmdList.LFGRIVALS = function(msg)
       print("auto-refresh off.")
     end
   elseif msg == "debug" then
-    Sources.Debug(print)
+    Sources.Debug(function(s) print(s); ns.Log.Add("debug", s) end)
+  elseif msg == "log" then
+    ns.Log.Show()
+  elseif msg == "verbose" then
+    db.verbose = not db.verbose
+    print("verbose logging to chat " .. (db.verbose and "on." or "off."))
   elseif msg == "minimap" then
     print(ns.Minimap.Toggle() and "minimap button shown." or "minimap button hidden (/rivals minimap to bring it back).")
   elseif msg == "help" then
     print("/rivals - toggle window | /rivals reset - re-detect spec | /rivals max <0-100> - hide DPS above that score"
       .. " | /rivals poll <seconds|off> - auto-refresh cadence (min " .. Core.MIN_POLL .. "s)"
-      .. " | /rivals minimap - show/hide minimap button | /rivals debug - dump Group Finder data")
+      .. " | /rivals minimap - show/hide minimap button | /rivals debug - dump Group Finder data"
+      .. " | /rivals log - copyable log | /rivals verbose - echo log to chat")
   else
     ns.UI.Toggle()
   end

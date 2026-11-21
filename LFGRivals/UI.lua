@@ -383,7 +383,9 @@ local function updatePoll()
   local secs = LFGRivalsDB.pollInterval
   pollBtn:SetText(secs > 0 and ("Auto: " .. secs .. "s") or "Auto: off")
   local left, due = ns.Core.PollStatus()
-  if not left then
+  if ns.Sources.searchBlocked then
+    statusText:SetText("|cffff6060Addon search blocked - search in Blizzard's LFG window.|r")
+  elseif not left then
     statusText:SetText("|cff888888Auto-refresh off.|r")
   elseif due then
     if InCombatLockdown and InCombatLockdown() then
@@ -398,7 +400,7 @@ local function updatePoll()
 
   local sc, s = ns.Sources.lastScan, ns.Sources.lastSearch
   if s and not s.ok then
-    scanText:SetText("|cffff6060Search failed - type /rivals debug|r")
+    scanText:SetText("|cffff6060Search failed - type /rivals log|r")
   elseif sc then
     scanText:SetText(string.format("|cff888888Last results: %d listings, %.0fs ago|r", sc.total, GetTime() - sc.at))
   else
@@ -451,7 +453,7 @@ local function build()
 
   refreshBtn = smallButton(frame, "Refresh", 80)
   refreshBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, ROW1)
-  refreshBtn:SetScript("OnClick", function() ns.Core.ManualRefresh() end)
+  refreshBtn:SetScript("OnClick", function() ns.Core.ManualRefresh("refresh button") end)
 
   pollBtn = smallButton(frame, "", 84)
   pollBtn:SetPoint("RIGHT", refreshBtn, "LEFT", -4, 0)
@@ -467,7 +469,7 @@ local function build()
     function(id)
       LFGRivalsDB.categoryID, LFGRivalsDB.activityID = id, 0
       updatePickers()
-      ns.Core.ManualRefresh()
+      ns.Core.ManualRefresh("category picked")
     end)
   catPicker.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 50, ROW2)
 
@@ -476,7 +478,7 @@ local function build()
     function(id)
       LFGRivalsDB.activityID = id
       updatePickers()
-      ns.Core.ManualRefresh()
+      ns.Core.ManualRefresh("activity picked")
     end)
   actPicker.frame:SetPoint("LEFT", catPicker.frame, "RIGHT", 0, 0)
 
@@ -595,4 +597,4 @@ BINDING_HEADER_LFGRIVALS = "LFG Rivals"
 BINDING_NAME_LFGRIVALS_TOGGLE = "Toggle window"
 BINDING_NAME_LFGRIVALS_REFRESH = "Refresh Group Finder search"
 function LFGRivals_Toggle() UI.Toggle() end
-function LFGRivals_Refresh() ns.Core.ManualRefresh() end
+function LFGRivals_Refresh() ns.Core.ManualRefresh("keybind") end
