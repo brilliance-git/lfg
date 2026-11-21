@@ -146,8 +146,16 @@ function Sources.ScanGroupFinder()
   if not ok or type(results) ~= "table" then return 0 end
 
   local added = 0
+  local drop = { noInfo = 0, delisted = 0, noName = 0 }
+  local firstDrop
   for _, resultID in ipairs(results) do
     local okInfo, info = pcall(C_LFGList.GetSearchResultInfo, resultID)
+    if not okInfo or type(info) ~= "table" then
+      drop.noInfo = drop.noInfo + 1
+      firstDrop = firstDrop or ("noInfo id=" .. tostring(resultID) .. " " .. tostring(info))
+    elseif info.isDelisted then
+      drop.delisted = drop.delisted + 1
+    end
     if okInfo and type(info) == "table" and not info.isDelisted then
       local size = info.numMembers or 1
       local m = memberInfo(resultID, 1) or {}
@@ -177,7 +185,13 @@ function Sources.ScanGroupFinder()
         groupSize = size,
         seen = GetTime and GetTime() or 0,
       }
-      if entry and size <= 1 then
+      if not entry and size <= 1 then
+        drop.noName = drop.noName + 1
+        if not firstDrop then
+          firstDrop = "noName id=" .. tostring(resultID) .. " info=" .. ns.Log.Fmt(info)
+            .. " member1=" .. ns.Log.Fmt(m) .. " leader=" .. ns.Log.Fmt(extra)
+        end
+      elseif entry and size <= 1 then
         Sources.entries["finder:" .. entry.name] = entry
         added = added + 1
       elseif size > 1 then
@@ -200,7 +214,13 @@ function Sources.ScanGroupFinder()
   Sources.lastScan = { at = GetTime(), total = #results, parsed = added }
   local nGroups = 0
   for _ in pairs(Sources.groups) do nGroups = nGroups + 1 end
-  ns.Log.Add("scan", #results, "results from client,", added - nGroups, "solo players,", nGroups, "groups")
+  ns.Log.Add("scan", #results, "results from client,", added - nGroups, "solo players,", nGroups, "groups;",
+    "dropped: noInfo", drop.noInfo, "delisted", drop.delisted, "noName", drop.noName)
+  -- Raw dump of the first dropped listing, once per distinct reason, to see why.
+  if firstDrop and firstDrop:sub(1, 6) ~= (Sources.lastDropKind or "") then
+    Sources.lastDropKind = firstDrop:sub(1, 6)
+    ns.Log.Add("scan", "first dropped:", firstDrop)
+  end
   return added
 end
 
@@ -263,29 +283,48 @@ local function searchPicked()
   Sources.lastSearch = s
   -- A blocked protected call does NOT raise a Lua error, so pcall "succeeds";
   -- Core watches ADDON_ACTION_BLOCKED and flips Sources.searchBlocked.
+  -- Signature confirmed on WoW Forever 1.60.1:
+  -- Search(categoryID, filter, preferredFilters, languageFilter, crossFaction, advanced, activityIDs)
   Sources.inOurSearch = true
-  -- Classic-style browser: Search(categoryID, activityIDs)
-  ns.Log.Add("search", "C_LFGList.Search(classic) category=", db.categoryID, "activityIDs=", activityIDs)
-  local ok, err = pcall(C_LFGList.Search, db.categoryID, activityIDs)
+  ns.Log.Add("search", "C_LFGList.Search category=", db.categoryID, "activityIDs=", activityIDs)
+  local ok, err = pcall(C_LFGList.Search, db.categoryID, 0, 0, nil, nil, nil, activityIDs)
+  Sources.inOurSearch = false
   if ok then
-    Sources.inOurSearch = false
-    s.ok, s.how = true, "classic"
-    ns.Log.Add("search", "classic call returned without error (may still be blocked)")
+    s.ok, s.how = true, "direct"
+    ns.Log.Add("search", "call returned without error (may still be blocked)")
     return true
   end
   s.err1 = tostring(err)
-  ns.Log.Add("search", "classic call error:", s.err1)
-  -- Retail-style: Search(categoryID, filter, preferredFilters, languageFilter, crossFaction, advanced, activityIDs)
-  ok, err = pcall(C_LFGList.Search, db.categoryID, 0, 0, nil, nil, nil, activityIDs)
-  Sources.inOurSearch = false
-  if ok then
-    s.ok, s.how = true, "retail"
-    ns.Log.Add("search", "retail call returned without error (may still be blocked)")
-    return true
-  end
-  s.err2 = tostring(err)
-  ns.Log.Add("search", "retail call error:", s.err2)
+  ns.Log.Add("search", "call error:", s.err1)
   return false
+end
+
+-- Blizzard's own LFG refresh button, if this client has one loaded. A secure
+-- button that "clicks" it runs Blizzard's search untainted, which works even
+-- when addons are blocked from calling C_LFGList.Search themselves.
+function Sources.FindBlizzardRefresh()
+  local function usable(b) return type(b) == "table" and type(b.Click) == "function" end
+  local known = {
+    { "LFGBrowseFrame.RefreshButton", LFGBrowseFrame and LFGBrowseFrame.RefreshButton },
+    { "LFGBrowseFrameRefreshButton", _G.LFGBrowseFrameRefreshButton },
+    { "LFGListFrame.SearchPanel.RefreshButton",
+      LFGListFrame and LFGListFrame.SearchPanel and LFGListFrame.SearchPanel.RefreshButton },
+    { "LFGListFrameSearchPanelRefreshButton", _G.LFGListFrameSearchPanelRefreshButton },
+  }
+  for _, c in ipairs(known) do
+    if usable(c[2]) then return c[2], c[1] end
+  end
+  -- Unknown layout: look for a RefreshButton on any Blizzard LFG frame.
+  for name, v in pairs(_G) do
+    if type(name) == "string" and name:find("LFG") and not name:find("^LFGRivals")
+       and type(v) == "table" and type(v.GetObjectType) == "function" then
+      if usable(v.RefreshButton) then return v.RefreshButton, name .. ".RefreshButton" end
+      if type(v.SearchPanel) == "table" and usable(v.SearchPanel.RefreshButton) then
+        return v.SearchPanel.RefreshButton, name .. ".SearchPanel.RefreshButton"
+      end
+    end
+  end
+  return nil, nil
 end
 
 -- Log every call to C_LFGList.Search, including Blizzard's own (and other
@@ -395,26 +434,12 @@ function Sources.RequestRefresh(why)
   ns.Log.Add("refresh", "requested by", why or "?")
   if Sources.searchBlocked then
     -- Every further try would just pop "Interface action failed" again.
-    ns.Log.Add("refresh", "skipped: client blocked our search earlier this session")
+    -- (Clicking Blizzard's button from addon code is just as blocked; only the
+    -- secure Refresh button / keybind can do that.)
+    ns.Log.Add("refresh", "skipped: client blocks addon searches")
     return false
   end
-  if searchPicked() then return true end
-  local candidates = {
-    { "LFGBrowseFrame.RefreshButton", LFGBrowseFrame and LFGBrowseFrame.RefreshButton },
-    { "LFGListFrame.SearchPanel.RefreshButton",
-      LFGListFrame and LFGListFrame.SearchPanel and LFGListFrame.SearchPanel.RefreshButton },
-  }
-  for _, c in ipairs(candidates) do
-    local label, btn = c[1], c[2]
-    if btn and btn.Click then
-      local ok, err = pcall(btn.Click, btn)
-      ns.Log.Add("refresh", "clicked", label, "ok=", ok, err)
-      if ok then return true end
-    else
-      ns.Log.Add("refresh", label, "not present")
-    end
-  end
-  return false
+  return searchPicked()
 end
 
 ---------------------------------------------------------------------------

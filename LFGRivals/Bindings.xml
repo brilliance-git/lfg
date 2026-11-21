@@ -1,4 +1,4 @@
 <Bindings>
   <Binding name="LFGRIVALS_TOGGLE" header="LFGRIVALS">LFGRivals_Toggle()</Binding>
-  <Binding name="LFGRIVALS_REFRESH">LFGRivals_Refresh()</Binding>
+  <Binding name="CLICK LFGRivalsSecureRefresh:LeftButton"/>
 </Bindings>

@@ -205,8 +205,8 @@ function Core.ManualRefresh(why)
   scheduleNext()
   if not Sources.RequestRefresh(why or "click") then
     if Sources.searchBlocked then
-      print("this client doesn't let addons start LFG searches. Search in Blizzard's LFG window"
-        .. " instead; results show up here automatically. (/rivals log for details)")
+      print("addon searches are blocked here. Open Blizzard's LFG window once (so its refresh button"
+        .. " exists), then use the Refresh button in LFG Rivals. (/rivals log for details)")
     else
       print("couldn't start a search - pick a category at the top of the window. (/rivals log for details)")
     end
@@ -289,6 +289,14 @@ f:SetScript("OnEvent", function(_, event, ...)
       if not ok then ns.Log.Add("init", "event not available:", ev) end
     end
     Sources.InstallSpies()
+    -- If this client build already blocked our direct search, don't trigger
+    -- the "Interface action failed" popup again; use the secure Refresh.
+    local _, build = GetBuildInfo()
+    if LFGRivalsDB.blockedBuild == build then
+      Sources.searchBlocked = true
+      ns.Log.Add("init", "direct search known blocked on build", build, "- using secure Refresh only")
+    end
+    ns.UI.Build()   -- create the window (hidden) so the Refresh keybind works right away
     if type(LFGRivalsDB.minimap) ~= "table" then LFGRivalsDB.minimap = { angle = 200, hide = false } end
     ns.Minimap.Create()
     Sources.ScanGroupFinder()
@@ -299,10 +307,10 @@ f:SetScript("OnEvent", function(_, event, ...)
     ns.Log.Add("blocked", event, "addon=", addon, "function=", func)
     if addon == ADDON and not Sources.searchBlocked then
       Sources.searchBlocked = true
+      LFGRivalsDB.blockedBuild = select(2, GetBuildInfo())
       poll.due = false
-      print("the game blocked LFG Rivals from calling " .. tostring(func)
-        .. ". Addon searches are off for this session - search in Blizzard's LFG window and"
-        .. " results still show up here. (/rivals log for details)")
+      print("this client doesn't let addons start LFG searches. The Refresh button (and its keybind)"
+        .. " now press Blizzard's own LFG refresh instead. Auto-refresh can't work here.")
       markDirty()
     end
   elseif event == "LFG_LIST_SEARCH_FAILED" then
@@ -356,6 +364,10 @@ SlashCmdList.LFGRIVALS = function(msg)
     end
   elseif msg == "debug" then
     Sources.Debug(function(s) print(s); ns.Log.Add("debug", s) end)
+  elseif msg == "unblock" then
+    db.blockedBuild, Sources.searchBlocked = nil, false
+    print("will try direct searches again (expect the 'Interface action failed' popup if still blocked).")
+    markDirty()
   elseif msg == "log" then
     ns.Log.Show()
   elseif msg == "verbose" then
