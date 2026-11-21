@@ -216,6 +216,14 @@ function Core.ManualRefresh(why)
   markDirty()
 end
 
+-- From non-hardware contexts (dropdown picks): don't search, just make a
+-- refresh due so the next key press or Refresh click runs it.
+function Core.MarkDue(why)
+  ns.Log.Add("refresh", "due now:", why)
+  poll.due = true
+  markDirty()
+end
+
 -- The client fires LFG_LIST_SEARCH_RESULT_UPDATED once per listing; collapse a
 -- burst into one scan.
 local scanPending = false
@@ -246,6 +254,7 @@ end
 
 -- For the UI: nil if off, else seconds left and whether it's waiting on a key.
 function Core.PollStatus()
+  if poll.due then return 0, true end
   if LFGRivalsDB.pollInterval <= 0 then return nil end
   return math.max(0, math.ceil(poll.nextAt - GetTime())), poll.due
 end
@@ -303,13 +312,9 @@ f:SetScript("OnEvent", function(_, event, ...)
       if not ok then ns.Log.Add("init", "event not available:", ev) end
     end
     Sources.InstallSpies()
-    -- If this client build already blocked our direct search, don't trigger
-    -- the "Interface action failed" popup again; use the secure Refresh.
-    local _, build = GetBuildInfo()
-    if LFGRivalsDB.blockedBuild == build then
-      Sources.searchBlocked = true
-      ns.Log.Add("init", "direct search known blocked on build", build, "- using secure Refresh only")
-    end
+    -- Older versions remembered a single block forever; clicks and key
+    -- presses do work, so forget it.
+    LFGRivalsDB.blockedBuild = nil
     ns.UI.Build()   -- create the window (hidden) so the Refresh keybind works right away
     if type(LFGRivalsDB.minimap) ~= "table" then LFGRivalsDB.minimap = { angle = 200, hide = false } end
     ns.Minimap.Create()
@@ -319,12 +324,11 @@ f:SetScript("OnEvent", function(_, event, ...)
   elseif event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
     local addon, func = ...
     ns.Log.Add("blocked", event, "addon=", addon, "function=", func)
-    if addon == ADDON and not Sources.searchBlocked then
-      Sources.searchBlocked = true
-      LFGRivalsDB.blockedBuild = select(2, GetBuildInfo())
-      poll.due = false
-      print("the client blocked an LFG search from LFG Rivals. Addon searches are paused for this"
-        .. " client build - search in Blizzard's LFG window, or /rivals unblock to retry. (/rivals log)")
+    -- One blocked call doesn't mean searching is broken (Refresh clicks and
+    -- key presses work), so just log it; nothing gets switched off.
+    if addon == ADDON then
+      ns.Log.Add("blocked", "search from LFG Rivals was blocked; next key press or Refresh will retry")
+      poll.due = true
       markDirty()
     end
   elseif event == "LFG_LIST_SEARCH_FAILED" then

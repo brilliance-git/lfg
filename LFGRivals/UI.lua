@@ -470,7 +470,9 @@ local function build()
   pollBtn:SetPoint("RIGHT", refreshBtn, "LEFT", -4, 0)
   pollBtn:SetScript("OnClick", function() ns.Core.CyclePoll(); updatePoll() end)
 
-  -- Row 2: category -> activity. Picking one searches right away (it's a click).
+  -- Row 2: category -> activity. Searching from a dropdown pick is blocked by
+  -- the client (not a hardware event by the time it reaches us), so a pick only
+  -- makes a refresh due: it fires on your next key press or Refresh click.
   local searchLbl = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   searchLbl:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, ROW2 - 8)
   searchLbl:SetText("Search:")
@@ -480,7 +482,7 @@ local function build()
     function(id)
       LFGRivalsDB.categoryID, LFGRivalsDB.activityID = id, 0
       updatePickers()
-      ns.Core.ManualRefresh("category picked")
+      ns.Core.MarkDue("category picked")
     end)
   catPicker.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 50, ROW2)
 
@@ -489,7 +491,7 @@ local function build()
     function(id)
       LFGRivalsDB.activityID = id
       updatePickers()
-      ns.Core.ManualRefresh("activity picked")
+      ns.Core.MarkDue("activity picked")
     end)
   actPicker.frame:SetPoint("LEFT", catPicker.frame, "RIGHT", 0, 0)
 
