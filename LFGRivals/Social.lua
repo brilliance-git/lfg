@@ -144,32 +144,60 @@ end
 -- Right-click menu (own small frame: dropdown APIs differ between clients)
 ---------------------------------------------------------------------------
 
-StaticPopupDialogs = StaticPopupDialogs or {}
-StaticPopupDialogs.LFGRIVALS_NOTE = {
-  text = "Note for %s:",
-  button1 = ACCEPT or "Accept",
-  button2 = CANCEL or "Cancel",
-  hasEditBox = 1,
-  maxLetters = 120,
-  OnShow = function(self, name)
-    local eb = self.editBox or self.EditBox
-    local p = LFGRivalsDB.people[name]
-    if eb then eb:SetText(p and p.note or ""); eb:SetFocus() end
-  end,
-  OnAccept = function(self, name)
-    local eb = self.editBox or self.EditBox
-    if eb then S.SetNote(name, eb:GetText()) end
-  end,
-  EditBoxOnEnterPressed = function(self)
-    local parent = self:GetParent()
-    S.SetNote(parent.data, self:GetText())
-    parent:Hide()
-  end,
-  EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
-  timeout = 0,
-  whileDead = 1,
-  hideOnEscape = 1,
-}
+-- Note editor: a small frame of our own. Never touch StaticPopupDialogs:
+-- writing to that global taints Blizzard's popups, and the game then blames
+-- LFG Rivals when one of them does a protected action.
+local noteFrame
+local function noteEditor()
+  if noteFrame then return noteFrame end
+  local f = CreateFrame("Frame", "LFGRivalsNote", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  f:SetSize(300, 96)
+  f:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
+  f:SetFrameStrata("DIALOG")
+  f:SetClampedToScreen(true)
+  f:EnableMouse(true)
+  if f.SetBackdrop then
+    f:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+      edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32, edgeSize = 24,
+      insets = { left = 6, right = 6, top = 6, bottom = 6 } })
+  end
+  f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  f.title:SetPoint("TOP", f, "TOP", 0, -14)
+  local eb = CreateFrame("EditBox", "LFGRivalsNoteEdit", f, "InputBoxTemplate")
+  eb:SetSize(250, 20)
+  eb:SetPoint("TOP", f.title, "BOTTOM", 0, -8)
+  eb:SetAutoFocus(false)
+  eb:SetMaxLetters(120)
+  f.edit = eb
+  local function save() S.SetNote(f.name, eb:GetText()); f:Hide() end
+  eb:SetScript("OnEnterPressed", save)
+  eb:SetScript("OnEscapePressed", function() f:Hide() end)
+  local ok = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  ok:SetSize(90, 22)
+  ok:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -4, 12)
+  ok:SetText(SAVE or "Save")
+  ok:SetScript("OnClick", save)
+  local cancel = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  cancel:SetSize(90, 22)
+  cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 4, 12)
+  cancel:SetText(CANCEL or "Cancel")
+  cancel:SetScript("OnClick", function() f:Hide() end)
+  f:SetScript("OnHide", function() eb:ClearFocus() end)
+  tinsert(UISpecialFrames, "LFGRivalsNote")
+  noteFrame = f
+  return f
+end
+
+function S.EditNote(name)
+  local f = noteEditor()
+  f.name = name
+  f.title:SetText("Note for " .. name .. ":")
+  local p = LFGRivalsDB.people[name]
+  f.edit:SetText(p and p.note or "")
+  f:Show()
+  f.edit:SetFocus()
+  f.edit:HighlightText()
+end
 
 local menu
 local function menuButton(i)
@@ -235,7 +263,7 @@ function S.PlayerMenu(name, whisperFn)
     { text = p.fav and "Remove favorite" or "Favorite", fn = function() S.ToggleFav(name) end },
     { text = p.avoid and "Stop avoiding" or "Avoid", fn = function() S.ToggleAvoid(name) end },
     { text = (p.note and p.note ~= "") and "Edit note..." or "Add note...",
-      fn = function() StaticPopup_Show("LFGRIVALS_NOTE", name, nil, name) end },
+      fn = function() S.EditNote(name) end },
     { text = "|cff888888Cancel|r" },
   })
 end

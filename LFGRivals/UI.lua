@@ -321,9 +321,30 @@ local function contactTag(c)
   return "|cffff9933" .. (c.how == "invite" and "inv" or c.how == "join" and "asked" or "w") .. "|r"
 end
 
+-- Mouse wheel: handled here (not by the template) so it works on every client,
+-- and rows forward it so scrolling works with the cursor over a row.
+local function scrollBy(delta)
+  if not scroll then return end
+  if scroll.UpdateScrollChildRect then scroll:UpdateScrollChildRect() end
+  local max = math.max(0, (content and content:GetHeight() or 0) - scroll:GetHeight())
+  local v = math.min(max, math.max(0, scroll:GetVerticalScroll() - delta * ROW_H * 3))
+  local bar = scroll.ScrollBar or _G[(scroll:GetName() or "") .. "ScrollBar"]
+  if bar and bar.SetMinMaxValues then
+    bar:SetMinMaxValues(0, max)
+    bar:SetValue(v)   -- its OnValueChanged also scrolls the frame
+  end
+  scroll:SetVerticalScroll(v)
+end
+
+local function wheel(r)
+  r:EnableMouseWheel(true)
+  r:SetScript("OnMouseWheel", function(_, delta) scrollBy(delta) end)
+end
+
 local function makeRow(i)
   local r = CreateFrame("Button", nil, content)
   r:SetHeight(ROW_H)
+  wheel(r)
   r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
   local hl = r:CreateTexture(nil, "HIGHLIGHT")
@@ -483,6 +504,7 @@ end
 local function makeGroupRow(i)
   local r = CreateFrame("Button", nil, content)
   r:SetHeight(GROUP_H)
+  wheel(r)
   r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
   local hl = r:CreateTexture(nil, "HIGHLIGHT")
@@ -865,7 +887,9 @@ local function build()
   hMakeup = header("groups", 0, "Makeup")
   hRival = header("groups", 0, "Rival")
 
-  scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
+  -- Named: older scroll templates look up their scrollbar as <name>ScrollBar.
+  scroll = CreateFrame("ScrollFrame", "LFGRivalsScroll", frame, "UIPanelScrollFrameTemplate")
+  wheel(scroll)
   scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, ROW3 - 44)
   scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -32, 46)
   content = CreateFrame("Frame", nil, scroll)
@@ -1032,6 +1056,7 @@ function UI.Refresh()
     end
   end
   content:SetHeight(math.max(height, 1))
+  scrollBy(0)   -- refresh the scroll range; clamps if the list got shorter
   if ns.Options and ns.Options.Refresh then ns.Options.Refresh() end
 end
 

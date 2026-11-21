@@ -378,7 +378,8 @@ local function onInvite(inviter)
   Core.pendingJoin[name] = nil
   ns.Log.Add("ui", "auto-accepting invite from", name)
   if AcceptGroup then AcceptGroup() end
-  if StaticPopup_Hide then StaticPopup_Hide("PARTY_INVITE") end
+  -- Blizzard closes its own invite popup once we're in the group; hiding it
+  -- from here would taint it.
   print("accepted " .. name .. "'s invite.")
 end
 
