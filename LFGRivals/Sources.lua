@@ -69,6 +69,7 @@ local function memberInfo(resultID, idx)
         level = info.level,
         isLeader = info.isLeader,
         name = info.name,
+        zone = info.areaName,
       }
     end
   end
@@ -121,7 +122,8 @@ local function groupMembers(resultID, size)
   for i = 1, size do
     local m = memberInfo(resultID, i)
     if m and (m.role or m.class) then
-      members[#members + 1] = { role = normRole(m.role), class = m.class, name = m.name, level = m.level }
+      members[#members + 1] = { role = normRole(m.role), class = m.class, name = m.name and shortName(m.name),
+                                level = m.level, zone = m.zone }
     end
   end
   if #members == 0 and C_LFGList.GetSearchResultMemberCounts then
@@ -197,6 +199,7 @@ function Sources.ScanGroupFinder()
         role = role,
         specName = m.specName or extra.specName,
         level = m.level or extra.level or info.leaderLevel or info.level,
+        zone = m.zone or extra.areaName,
         comment = comment,
         source = "finder",
         groupSize = size,
@@ -227,6 +230,8 @@ function Sources.ScanGroupFinder()
           id = resultID,
           leader = name and shortName(name) or "?",
           leaderClass = class,
+          leaderLevel = m.level or extra.level,
+          leaderZone = m.zone or extra.areaName,
           activity = actName or info.name or "",
           comment = info.comment or "",
           size = size,

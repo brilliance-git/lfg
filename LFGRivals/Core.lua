@@ -27,6 +27,14 @@ local DEFAULTS = {
   contacted = {},       -- [name] = { t = time(), how = "whisper"|"invite" }
   lootSeen = {},        -- [dungeon] = { [itemID] = true }, see Loot.lua
   buildMode = false,
+  people = {},          -- [name] = { fav, avoid, note }, see Social.lua
+  met = {},             -- [name] = time() you were last grouped with them
+  greyFiltered = true,  -- filtered players stay listed, greyed at the end
+  hideAvoided = false,
+  needsMyRole = false,  -- Groups tab: grey groups with no open slot for my role
+  autoAccept = true,    -- accept the invite from a group I pressed Join on
+  sortKey = "rival",    -- Players tab column sort: rival / name / level / zone
+  sortDesc = false,
   size = nil,           -- { w, h } of the window
 }
 Core.CONTACT_TTL = 2 * 60 * 60   -- forget who you contacted after 2 hours
@@ -176,15 +184,25 @@ local function specsFor(e)
   return {}
 end
 
+-- Column sort (Players tab headers). Values compared ascending; unknowns last.
+local SORT_VALUE = {
+  rival = function(d) return d.score end,
+  name  = function(d) return d.entry.name and d.entry.name:lower() end,
+  level = function(d) return d.entry.level end,
+  zone  = function(d) return d.entry.zone and d.entry.zone:lower() end,
+}
+
 -- Returns a flat, display-ready list: healers first, then (tanks), then DPS.
--- Within each role, lowest gear competition first; unknowns go last.
+-- Within each role: people you trust (favorite / friend / guild) first, then
+-- the chosen column (Rival by default), then rows that fail a filter, greyed.
 -- opts.allRoles: include tanks even when "Show tanks" is off (group builder).
--- Also returns how many players the level filter hid.
+-- opts.strict:   drop filtered rows instead of greying them (builder, alerts).
+-- Also returns how many players were hidden.
 function Core.BuildList(opts)
   local db = LFGRivalsDB
+  local strict = opts and opts.strict
   local meClass, meSpec = Core.Me()
   local myName = UnitName and UnitName("player")
-  local myLevel = UnitLevel and UnitLevel("player") or 0
   local profile, dungeon = Core.CurrentProfile()
   local lo, hi = Core.LevelWindow()
   local wantDungeon = dungeon and ns.Journal.Find(dungeon)
@@ -196,14 +214,19 @@ function Core.BuildList(opts)
       and (e.source ~= "chat" or db.useChat)
       and (e.role ~= "TANK" or db.showTanks or (opts and opts.allRoles))
       and e.role ~= nil
+    local social = keep and ns.Social.Info(e.name)
+    local filtered
     if keep and lo and e.level and (e.level < lo or e.level > hi) then
-      keep = false
-      hidden = hidden + 1
+      filtered = "level " .. e.level .. " is outside " .. lo .. "-" .. hi
+    elseif keep and wantDungeon and e.dungeon and e.dungeon ~= wantDungeon then
+      filtered = "asking for " .. e.dungeon      -- chat LFG naming another dungeon
+    elseif keep and social and social.avoid then
+      filtered = "you marked them avoid"
+      if db.hideAvoided then keep = false; hidden = hidden + 1 end
     end
-    -- Chat LFG that names a different dungeon than the one you picked.
-    if keep and wantDungeon and e.dungeon and e.dungeon ~= wantDungeon then
+    if keep and filtered and (strict or not db.greyFiltered) then
       keep = false
-      hidden = hidden + 1
+      if not (social and social.avoid) then hidden = hidden + 1 end
     end
     if keep then
       local specs = specsFor(e)
@@ -215,6 +238,9 @@ function Core.BuildList(opts)
         score = score,
         certain = #specs == 1,
         contacted = Core.Contacted(e.name),
+        social = social or nil,
+        filtered = filtered,
+        proximity = dungeon and ns.Journal.Proximity(e.zone, dungeon),
       }
       if e.role ~= "DAMAGER" or score == nil or score <= db.maxScore then
         out[#out + 1] = row
@@ -222,15 +248,35 @@ function Core.BuildList(opts)
     end
   end
 
+  local valueOf = SORT_VALUE[db.sortKey] or SORT_VALUE.rival
+  local desc = db.sortDesc
   table.sort(out, function(a, b)
     local ra, rb = ROLE_ORDER[a.entry.role] or 9, ROLE_ORDER[b.entry.role] or 9
     if ra ~= rb then return ra < rb end
+    local fa, fb = a.filtered and 1 or 0, b.filtered and 1 or 0
+    if fa ~= fb then return fa < fb end
+    local ta, tb = (a.social and a.social.trusted) and 0 or 1, (b.social and b.social.trusted) and 0 or 1
+    if ta ~= tb then return ta < tb end
+    local va, vb = valueOf(a), valueOf(b)
+    if va ~= vb then
+      if va == nil then return false end
+      if vb == nil then return true end
+      if desc then return va > vb end
+      return va < vb
+    end
     local sa, sb = a.score or 999, b.score or 999
     if sa ~= sb then return sa < sb end
     if a.certain ~= b.certain then return a.certain end
     return (a.entry.name or "") < (b.entry.name or "")
   end)
   return out, hidden
+end
+
+-- Header click: sort by that column; clicking it again flips the order.
+function Core.SetSort(key)
+  local db = LFGRivalsDB
+  if db.sortKey == key then db.sortDesc = not db.sortDesc else db.sortKey, db.sortDesc = key, false end
+  markDirty()
 end
 
 -- The level window players must be in: the picked dungeon's range (from the
@@ -258,23 +304,82 @@ end
 
 -- Groups tab: each listed group with its makeup. Rival = the most any current
 -- member competes with you for gear (unknown classes ignored). Lowest first.
+-- "Needs my role": groups with an open slot for your role float up (and pulse
+-- in the UI); with the filter on, the rest are greyed at the end (or hidden).
+function Core.MyRole()
+  local _, spec = Core.Me()
+  return spec and spec.role or "DAMAGER"
+end
+
 function Core.BuildGroups()
+  local db = LFGRivalsDB
+  local myRole = Core.MyRole()
   local out = {}
   for _, g in pairs(Sources.groups) do
     local profile = ns.Loot.ProfileFor(g.activity)
     local worst
+    local avoided
     for _, m in ipairs(g.members) do
       local s = Core.MemberScore(m, profile)
       if s and (not worst or s > worst) then worst = s end
+      local si = m.name and ns.Social.Info(m.name)
+      if si and si.avoid then avoided = m.name end
     end
-    out[#out + 1] = { group = g, score = worst, profile = profile, contacted = Core.Contacted(g.leader) }
+    local social = ns.Social.Info(g.leader)
+    if social and social.avoid then avoided = g.leader end
+    local needsMe = g.remaining and (g.remaining[myRole] or 0) > 0 or false
+    local filtered
+    if db.needsMyRole and g.remaining and not needsMe then
+      filtered = "no open " .. (myRole == "DAMAGER" and "DPS" or myRole:lower()) .. " slot"
+    elseif avoided then
+      filtered = "has " .. avoided .. " (avoid)"
+    end
+    local drop = filtered and (not db.greyFiltered or (avoided and db.hideAvoided))
+    if not drop then
+      out[#out + 1] = { group = g, score = worst, profile = profile, contacted = Core.Contacted(g.leader),
+                        social = social, needsMe = needsMe, filtered = filtered,
+                        trusted = social and social.trusted }
+    end
   end
   table.sort(out, function(a, b)
+    local fa, fb = a.filtered and 1 or 0, b.filtered and 1 or 0
+    if fa ~= fb then return fa < fb end
+    if db.needsMyRole and a.needsMe ~= b.needsMe then return a.needsMe end
+    local ta, tb = a.trusted and 0 or 1, b.trusted and 0 or 1
+    if ta ~= tb then return ta < tb end
     local sa, sb = a.score or 999, b.score or 999
     if sa ~= sb then return sa < sb end
     return a.group.size < b.group.size
   end)
   return out
+end
+
+---------------------------------------------------------------------------
+-- Join a group: whisper the leader now, accept their invite automatically
+---------------------------------------------------------------------------
+
+Core.pendingJoin = {}   -- [leader] = GetTime() of the Join click
+local JOIN_WINDOW = 5 * 60
+
+function Core.Join(leader, text)
+  if not leader or not SendChatMessage then return end
+  ns.Log.Add("ui", "join", leader)
+  if text and text ~= "" then SendChatMessage(text, "WHISPER", nil, leader) end
+  Core.pendingJoin[leader] = GetTime()
+  Core.MarkContacted(leader, "join")
+  print("asked " .. leader .. " to join" .. (LFGRivalsDB.autoAccept and " - their invite will be accepted automatically." or "."))
+end
+
+local function onInvite(inviter)
+  if not (LFGRivalsDB.autoAccept and inviter) then return end
+  local name = Ambiguate and Ambiguate(inviter, "short") or inviter
+  local t = Core.pendingJoin[name]
+  if not t or GetTime() - t > JOIN_WINDOW then return end
+  Core.pendingJoin[name] = nil
+  ns.Log.Add("ui", "auto-accepting invite from", name)
+  if AcceptGroup then AcceptGroup() end
+  if StaticPopup_Hide then StaticPopup_Hide("PARTY_INVITE") end
+  print("accepted " .. name .. "'s invite.")
 end
 
 ---------------------------------------------------------------------------
@@ -301,7 +406,7 @@ function Core.BuildPlan()
   end
 
   local picks, taken = {}, {}
-  local list = Core.BuildList({ allRoles = true })
+  local list = Core.BuildList({ allRoles = true, strict = true })
   for _, role in ipairs({ "HEALER", "TANK", "DAMAGER" }) do
     for _, d in ipairs(list) do
       if need[role] <= 0 then break end
@@ -350,7 +455,7 @@ local alerted, alertSeeded, lastSound = {}, false, 0
 function Core.CheckAlerts()
   local db = LFGRivalsDB
   local fresh = {}
-  local list = Core.BuildList()
+  local list = Core.BuildList({ strict = true })
   if #list == 0 then return end
   for _, d in ipairs(list) do
     local e = d.entry
@@ -508,7 +613,9 @@ f:SetScript("OnEvent", function(_, event, ...)
                           "LFG_LIST_SEARCH_FAILED", "LFG_LIST_AVAILABILITY_UPDATE",
                           "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN",
                           "CHARACTER_POINTS_CHANGED", "PLAYER_TALENT_UPDATE", "CHAT_MSG_CHANNEL",
-                          "CHAT_MSG_LOOT", "LOOT_OPENED", "PLAYER_LEVEL_UP" }) do
+                          "CHAT_MSG_LOOT", "LOOT_OPENED", "PLAYER_LEVEL_UP",
+                          "FRIENDLIST_UPDATE", "GUILD_ROSTER_UPDATE", "GROUP_ROSTER_UPDATE",
+                          "PARTY_INVITE_REQUEST" }) do
       local ok = pcall(f.RegisterEvent, f, ev)
       if not ok then ns.Log.Add("init", "event not available:", ev) end
     end
@@ -517,6 +624,10 @@ f:SetScript("OnEvent", function(_, event, ...)
     -- presses do work, so forget it.
     LFGRivalsDB.blockedBuild = nil
     Core.PruneContacted()
+    ns.Social.Prune()
+    ns.Social.RefreshFriends()
+    ns.Social.RequestGuild()
+    ns.Social.RecordGroup()
     ns.Log.Add("init", "loot: client journal API", ns.Loot.journal.available,
       "ForeverDungeonJournal addon", ns.Journal.Available())
     ns.UI.Build()   -- create the window (hidden) so the Refresh keybind works right away
@@ -573,6 +684,17 @@ f:SetScript("OnEvent", function(_, event, ...)
     end
   elseif event == "PLAYER_LEVEL_UP" then
     markDirty()
+  elseif event == "FRIENDLIST_UPDATE" then
+    ns.Social.RefreshFriends()
+    markDirty()
+  elseif event == "GUILD_ROSTER_UPDATE" then
+    ns.Social.RefreshGuild()
+    markDirty()
+  elseif event == "GROUP_ROSTER_UPDATE" then
+    ns.Social.RecordGroup()
+    markDirty()
+  elseif event == "PARTY_INVITE_REQUEST" then
+    onInvite((...))
   end
 end)
 

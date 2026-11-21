@@ -6,8 +6,8 @@ local UI = {}
 ns.UI = UI
 
 local ROW_H, GROUP_H = 24, 42
-local DEFAULT_W, DEFAULT_H = 600, 540
-local MIN_W, MIN_H, MAX_W, MAX_H = 580, 380, 1200, 1000   -- narrower and row 2 overlaps
+local DEFAULT_W, DEFAULT_H = 700, 540
+local MIN_W, MIN_H, MAX_W, MAX_H = 640, 380, 1300, 1000   -- narrower squeezes the Note column
 local ROLE_LABEL = {
   HEALER  = "|cff40ff40Heal|r",
   TANK    = "|cff4da6ffTank|r",
@@ -20,11 +20,14 @@ local SECTION = {
   DAMAGER = "DPS - least gear competition first",
 }
 local ROLE_ORDER = { TANK = 1, HEALER = 2, DAMAGER = 3 }
+-- Players tab column x positions (headers and rows share them).
+local COL = { role = 4, name = 42, level = 168, rival = 198, zone = 240, note = 354 }
+local CONTACT_VERB = { invite = "invited", whisper = "whispered", join = "asked to join" }
 local MAX_ICONS = 10
 local ICON_STEP = 20
 
 local frame, scroll, content, statusText, scanText, lootText, refreshBtn, pollBtn, classBtn, specBtn
-local catPicker, actPicker, tankCB, playersTab, groupsTab, searchHint, buildBtn
+local catPicker, actPicker, tankCB, needsCB, playersTab, groupsTab, searchHint, buildBtn
 local rows, gRows = {}, {}
 local headers = { players = {}, groups = {} }
 local hMakeup, hRival
@@ -60,10 +63,10 @@ end
 -- Whisper / invite
 ---------------------------------------------------------------------------
 
--- {name} {dungeon} {role} {me} -> text. Unknown placeholders are left alone.
+-- {name} {dungeon} {role} {me} {level} -> text. Unknown placeholders are left alone.
 local function fillTemplate(template, ctx)
   if not template or template == "" then return nil end
-  return (template:gsub("{(%a+)}", function(k) return ctx[k] end))
+  return (template:gsub("{(%a+)}", function(k) return ctx[k] ~= nil and tostring(ctx[k]) or nil end))
 end
 
 local function myLabel()
@@ -98,19 +101,34 @@ function UI.Invite(name)
   elseif InviteUnit then InviteUnit(name) end
 end
 
+local function myLevel() return UnitLevel and UnitLevel("player") or "?" end
+
 local function whisperPlayer(e)
   local dungeon = ns.Sources.ActivityName(LFGRivalsDB.activityID) or "a dungeon"
   UI.Whisper(e.name, fillTemplate(LFGRivalsDB.whisperMsg, {
     name = e.name:match("^(%S+)") or e.name, dungeon = dungeon,
-    role = ROLE_WORD[e.role] or "player", me = myLabel(),
+    role = ROLE_WORD[e.role] or "player", me = myLabel(), level = myLevel(),
   }))
 end
 
-local function whisperLeader(g)
-  UI.Whisper(g.leader, fillTemplate(LFGRivalsDB.groupWhisperMsg, {
+local function leaderContext(g)
+  return {
     name = g.leader:match("^(%S+)") or g.leader, dungeon = g.activity ~= "" and g.activity or "dungeon",
-    role = "leader", me = myLabel(),
-  }))
+    role = ROLE_WORD[ns.Core.MyRole()] or "DPS", me = myLabel(), level = myLevel(),
+  }
+end
+
+local function whisperLeader(g)
+  UI.Whisper(g.leader, fillTemplate(LFGRivalsDB.groupWhisperMsg, leaderContext(g)))
+end
+
+-- Join: send the group message to the leader right away, then accept their
+-- invite automatically (see Core.Join).
+local JOIN_FALLBACK = "Hi! Can I join for {dungeon}? Level {level} {me}."
+local function joinGroup(g)
+  local template = LFGRivalsDB.groupWhisperMsg
+  if not template or template == "" then template = JOIN_FALLBACK end
+  ns.Core.Join(g.leader, fillTemplate(template, leaderContext(g)))
 end
 
 ---------------------------------------------------------------------------
@@ -263,16 +281,21 @@ local function showPlayerTooltip(row)
   end
   GameTooltip:AddLine("Source: " .. (e.source == "chat" and "Chat" or "Group Finder")
     .. (e.dungeon and (" - wants " .. e.dungeon) or ""), 0.7, 0.7, 0.7)
-  if d.contacted then
-    GameTooltip:AddLine("You " .. (d.contacted.how == "invite" and "invited" or "whispered") .. " them "
-      .. ago(d.contacted.t), 1, 0.6, 0.2)
+  if e.zone then
+    GameTooltip:AddLine("Zone: " .. e.zone .. (d.proximity == "in" and "  (in the dungeon)"
+      or d.proximity == "near" and "  (near the dungeon)" or ""), 0.7, 0.7, 0.7)
   end
+  if d.contacted then
+    GameTooltip:AddLine("You " .. CONTACT_VERB[d.contacted.how] .. " them " .. ago(d.contacted.t), 1, 0.6, 0.2)
+  end
+  ns.Social.AddTooltip(d.social)
+  if d.filtered then GameTooltip:AddLine("Greyed: " .. d.filtered, 0.6, 0.6, 0.6) end
   if e.comment and e.comment ~= "" then
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine(e.comment, 1, 0.82, 0, true)
   end
   GameTooltip:AddLine(" ")
-  GameTooltip:AddLine("Click: whisper   Shift-click: invite", 0.5, 0.8, 1)
+  GameTooltip:AddLine("Click: whisper   Shift-click: invite   Right-click: more", 0.5, 0.8, 1)
   GameTooltip:Show()
 end
 
@@ -285,10 +308,23 @@ local function rowText(r, x, w, justify, font)
   return s
 end
 
+-- Zone, green when they're in or next to the picked dungeon.
+local function zoneText(zone, proximity)
+  if not zone or zone == "" then return "|cff666666-|r" end
+  if proximity == "in" then return "|cff40ff40" .. zone .. "|r" end
+  if proximity == "near" then return "|cff9fef7f" .. zone .. "|r" end
+  return "|cffaaaaaa" .. zone .. "|r"
+end
+
+local function contactTag(c)
+  if not c then return "" end
+  return "|cffff9933" .. (c.how == "invite" and "inv" or c.how == "join" and "asked" or "w") .. "|r"
+end
+
 local function makeRow(i)
   local r = CreateFrame("Button", nil, content)
   r:SetHeight(ROW_H)
-  r:RegisterForClicks("LeftButtonUp")
+  r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
   local hl = r:CreateTexture(nil, "HIGHLIGHT")
   hl:SetAllPoints()
@@ -298,17 +334,18 @@ local function makeRow(i)
   r.bg:SetAllPoints()
   r.bg:SetColorTexture(1, 0.82, 0, 0.07)
 
-  r.role    = rowText(r, 4, 36)
-  r.name    = rowText(r, 42, 122)
-  r.level   = rowText(r, 166, 30, "CENTER")
-  r.score   = rowText(r, 198, 36, "RIGHT")
+  r.role    = rowText(r, COL.role, 36)
+  r.name    = rowText(r, COL.name, 124)
+  r.level   = rowText(r, COL.level, 28, "CENTER")
+  r.score   = rowText(r, COL.rival, 34, "RIGHT")
+  r.zone    = rowText(r, COL.zone, 108)
   r.wBtn = smallButton(r, "W", 32, 22)
   r.wBtn:SetPoint("RIGHT", r, "RIGHT", -40, 0)
   r.wBtn:SetScript("OnClick", function() whisperPlayer(r.data.entry) end)
   r.iBtn = smallButton(r, "+", 32, 22)
   r.iBtn:SetPoint("RIGHT", r, "RIGHT", -4, 0)
   r.iBtn:SetScript("OnClick", function() UI.Invite(r.data.entry.name) end)
-  r.comment = rowText(r, 244, nil)
+  r.comment = rowText(r, COL.note, nil)
   r.comment:SetPoint("RIGHT", r.wBtn, "LEFT", -6, 0)
 
   r.header  = r:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -322,9 +359,12 @@ local function makeRow(i)
 
   r:SetScript("OnEnter", showPlayerTooltip)
   r:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  r:SetScript("OnClick", function(self)
+  r:SetScript("OnClick", function(self, button)
     if not self.data or self.data.section then return end
-    if IsShiftKeyDown() then UI.Invite(self.data.entry.name) else whisperPlayer(self.data.entry) end
+    local e = self.data.entry
+    if button == "RightButton" then
+      ns.Social.PlayerMenu(e.name, function() whisperPlayer(e) end)
+    elseif IsShiftKeyDown() then UI.Invite(e.name) else whisperPlayer(e) end
   end)
   rows[i] = r
   return r
@@ -333,7 +373,7 @@ end
 local function setRow(r, d)
   r.data = d
   local isHeader = d.section ~= nil
-  for _, k in ipairs({ "role", "name", "level", "score", "comment" }) do r[k]:SetShown(not isHeader) end
+  for _, k in ipairs({ "role", "name", "level", "score", "zone", "comment" }) do r[k]:SetShown(not isHeader) end
   r.wBtn:SetShown(not isHeader)
   r.iBtn:SetShown(not isHeader)
   r.header:SetShown(isHeader)
@@ -348,16 +388,17 @@ local function setRow(r, d)
     return
   end
   local e = d.entry
-  local tag = ""
-  if d.contacted then
-    tag = d.contacted.how == "invite" and " |cffff9933inv|r" or " |cffff9933w|r"
-    r:SetAlpha(0.55)
-  end
+  if d.filtered then r:SetAlpha(0.4) elseif d.contacted then r:SetAlpha(0.6) end
   r.role:SetText(ROLE_LABEL[e.role] or "?")
-  r.name:SetText(classColor(e.class) .. e.name .. "|r" .. (e.source == "chat" and " |cff888888(chat)|r" or "") .. tag)
+  r.name:SetText(classColor(e.class) .. e.name .. "|r" .. (e.source == "chat" and " |cff888888(chat)|r" or ""))
   r.level:SetText(e.level and tostring(e.level) or "|cff888888?|r")
   r.score:SetText(d.score and (scoreColor(d.score) .. d.score .. "|r") or "|cff888888-|r")
-  r.comment:SetText(e.comment or "")
+  r.zone:SetText(zoneText(e.zone, d.proximity))
+  -- Tags (fav friend guild met avoid note, contacted) lead the note column.
+  local tags = ns.Social.Tags(d.social)
+  local ct = contactTag(d.contacted)
+  if ct ~= "" then tags = tags ~= "" and (tags .. " " .. ct) or ct end
+  r.comment:SetText((tags ~= "" and (tags .. "  ") or "") .. (e.comment or ""))
 end
 
 ---------------------------------------------------------------------------
@@ -394,21 +435,27 @@ local function showGroupTooltip(row)
   if d.score then
     GameTooltip:AddLine("Worst gear rival in group: " .. scoreColor(d.score) .. d.score .. "/100|r", 1, 1, 1)
   end
+  if d.needsMe then GameTooltip:AddLine("Has an open slot for your role", 0.25, 1, 0.25) end
   if d.contacted then
-    GameTooltip:AddLine("You whispered the leader " .. ago(d.contacted.t), 1, 0.6, 0.2)
+    GameTooltip:AddLine("You " .. CONTACT_VERB[d.contacted.how] .. " the leader " .. ago(d.contacted.t), 1, 0.6, 0.2)
   end
+  ns.Social.AddTooltip(d.social)
+  if d.filtered then GameTooltip:AddLine("Greyed: " .. d.filtered, 0.6, 0.6, 0.6) end
   GameTooltip:AddLine(" ")
   for _, m in ipairs(sortedMembers(g)) do
+    local si = m.name and ns.Social.Info(m.name)
     GameTooltip:AddLine((ROLE_LABEL[m.role] or "?") .. "  " .. classColor(m.class)
       .. (m.name or (m.class and className(m.class)) or "Unknown") .. "|r"
-      .. (m.level and ("  " .. m.level) or ""))
+      .. (m.level and ("  " .. m.level) or "")
+      .. (m.zone and ("  |cff888888" .. m.zone .. "|r") or "")
+      .. (si and ("  " .. ns.Social.Tags(si)) or ""))
   end
   if g.comment ~= "" then
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine(g.comment, 1, 0.82, 0, true)
   end
   GameTooltip:AddLine(" ")
-  GameTooltip:AddLine("Click: whisper leader   Hover an icon: that member", 0.5, 0.8, 1)
+  GameTooltip:AddLine("Click: whisper leader   Join: ask and auto-accept   Right-click: more", 0.5, 0.8, 1)
   GameTooltip:Show()
 end
 
@@ -421,11 +468,14 @@ local function showIconTooltip(icon)
     GameTooltip:AddLine(classColor(m.class) .. (m.name or (m.class and className(m.class)) or "Unknown") .. "|r")
     GameTooltip:AddLine((m.class and className(m.class) or "Class unknown")
       .. (m.level and ("  level " .. m.level) or "") .. "  " .. (ROLE_LABEL[m.role] or ""), 1, 1, 1)
+    if m.zone then GameTooltip:AddLine(m.zone, 0.7, 0.7, 0.7) end
     local s = ns.Core.MemberScore(m, row.data.profile)
     if s then GameTooltip:AddLine("Gear competition: " .. scoreColor(s) .. s .. "/100|r", 1, 1, 1) end
+    ns.Social.AddTooltip(m.name and ns.Social.Info(m.name))
   else
     GameTooltip:AddLine("Open slot")
     GameTooltip:AddLine(icon.wants and ("Looking for: " .. ROLE_WORD[icon.wants]) or "Any role", 1, 1, 1)
+    if icon.pulse then GameTooltip:AddLine("That's your role", 0.25, 1, 0.25) end
   end
   GameTooltip:Show()
 end
@@ -433,11 +483,18 @@ end
 local function makeGroupRow(i)
   local r = CreateFrame("Button", nil, content)
   r:SetHeight(GROUP_H)
-  r:RegisterForClicks("LeftButtonUp")
+  r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
   local hl = r:CreateTexture(nil, "HIGHLIGHT")
   hl:SetAllPoints()
   hl:SetColorTexture(1, 1, 1, 0.08)
+
+  -- Green edge: this group has an open slot for your role.
+  r.edge = r:CreateTexture(nil, "ARTWORK")
+  r.edge:SetColorTexture(0.25, 1, 0.25, 0.9)
+  r.edge:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -2)
+  r.edge:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 2)
+  r.edge:SetWidth(3)
 
   r.crown = r:CreateTexture(nil, "ARTWORK")
   r.crown:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
@@ -454,8 +511,19 @@ local function makeGroupRow(i)
   r.sub:SetJustifyH("LEFT")
   r.sub:SetWordWrap(false)
 
-  r.wBtn = smallButton(r, "W", 32, 22)
-  r.wBtn:SetPoint("RIGHT", r, "RIGHT", -4, 0)
+  r.joinBtn = smallButton(r, "Join", 44, 22)
+  r.joinBtn:SetPoint("RIGHT", r, "RIGHT", -4, 0)
+  r.joinBtn:SetScript("OnClick", function() joinGroup(r.data.group) end)
+  r.joinBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Join")
+    GameTooltip:AddLine("Sends your group message to the leader now"
+      .. (LFGRivalsDB.autoAccept and " and accepts their invite automatically (for 5 minutes)." or "."), 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  r.joinBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  r.wBtn = smallButton(r, "W", 28, 22)
+  r.wBtn:SetPoint("RIGHT", r.joinBtn, "LEFT", -4, 0)
   r.wBtn:SetScript("OnClick", function() whisperLeader(r.data.group) end)
   r.score = rowText(r, 0, 30, "RIGHT")
   r.score:ClearAllPoints()
@@ -481,7 +549,15 @@ local function makeGroupRow(i)
 
   r:SetScript("OnEnter", showGroupTooltip)
   r:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  r:SetScript("OnClick", function(self) if self.data then whisperLeader(self.data.group) end end)
+  r:SetScript("OnClick", function(self, button)
+    if not self.data then return end
+    local g = self.data.group
+    if button == "RightButton" then
+      ns.Social.PlayerMenu(g.leader, function() whisperLeader(g) end)
+    else
+      whisperLeader(g)
+    end
+  end)
   gRows[i] = r
   return r
 end
@@ -489,7 +565,7 @@ end
 -- Column positions for the current width (window is resizable).
 local function groupColumns()
   local w = content:GetWidth()
-  local right = 4 + 32 + 8 + 30 + 12            -- W button, score, gap
+  local right = 4 + 44 + 4 + 28 + 8 + 30 + 12   -- Join, W, score, gap
   local iconsX = w - right - MAX_ICONS * ICON_STEP
   return iconsX, iconsX - 22 - 8                 -- icons start, leader/sub width
 end
@@ -500,13 +576,19 @@ local function setGroupRow(r, d)
   local iconsX, textW = groupColumns()
   r.leader:SetWidth(textW)
   r.sub:SetWidth(textW)
+  local tags = ns.Social.Tags(d.social)
+  local ct = contactTag(d.contacted)
   r.leader:SetText(classColor(g.leaderClass) .. g.leader .. "|r"
-    .. (d.contacted and " |cffff9933w|r" or ""))
+    .. (g.leaderLevel and (" |cffaaaaaa" .. g.leaderLevel .. "|r") or "")
+    .. (g.leaderZone and ("  " .. zoneText(g.leaderZone, ns.Journal.Proximity(g.leaderZone, g.activity))) or "")
+    .. (tags ~= "" and ("  " .. tags) or "") .. (ct ~= "" and ("  " .. ct) or ""))
   local sub = "|cffaaaaaa" .. g.activity .. "|r" .. rangeText(ns.Journal.Range(nil, g.activity))
   if g.comment ~= "" then sub = sub .. "  |cff40ff40" .. g.comment .. "|r" end
   r.sub:SetText(sub)
-  r:SetAlpha(d.contacted and 0.55 or 1)
+  r:SetAlpha((d.filtered and 0.4) or (d.contacted and 0.6) or 1)
+  r.edge:SetShown(d.needsMe and not d.filtered)
 
+  local myRole = ns.Core.MyRole()
   local members = sortedMembers(g)
   if g.max <= MAX_ICONS then
     r.count:Hide()
@@ -522,17 +604,20 @@ local function setGroupRow(r, d)
         b.tex:SetAlpha(1)
         local c = m.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[m.class]
         if c then b.bar:SetColorTexture(c.r, c.g, c.b, 1); b.bar:Show() else b.bar:Hide() end
-        b.member, b.wants = m, nil
+        b.member, b.wants, b.pulse = m, nil, false
         b:Show()
       elseif k <= g.max then
         local wants = open[k - #members]
         setRoleIcon(b.tex, wants or "DAMAGER")   -- empty slot: faded, shows the role wanted
-        b.tex:SetDesaturated(true)
-        b.tex:SetAlpha(wants and 0.35 or 0.15)
+        -- Your role: full color and pulsing (see the frame's OnUpdate).
+        b.pulse = wants == myRole and not d.filtered
+        b.tex:SetDesaturated(not b.pulse)
+        b.tex:SetAlpha(b.pulse and 1 or (wants and 0.35 or 0.15))
         b.bar:Hide()
         b.member, b.wants = nil, wants or nil
         b:Show()
       else
+        b.pulse = false
         b:Hide()
       end
     end
@@ -603,6 +688,42 @@ local function header(set, x, text)
   h:SetText(text)
   headers[set][#headers[set] + 1] = h
   return h
+end
+
+-- Clickable column header: sorts the Players tab by that column.
+local sortHeaders = {}
+local function sortHeader(x, text, key)
+  local b = CreateFrame("Button", nil, frame)
+  b:SetPoint("TOPLEFT", frame, "TOPLEFT", 12 + x - 2, ROW3 - 26)
+  b:SetSize(64, 16)
+  b.label = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  b.label:SetPoint("LEFT", b, "LEFT", 2, 0)
+  b.text, b.key = text, key
+  local hl = b:CreateTexture(nil, "HIGHLIGHT")
+  hl:SetAllPoints()
+  hl:SetColorTexture(1, 1, 1, 0.1)
+  b:SetScript("OnClick", function() ns.Core.SetSort(key) end)
+  b:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Sort by " .. text:lower() .. " (click again to flip)")
+    GameTooltip:AddLine("Healers, tanks and DPS stay in their own sections.", 0.7, 0.7, 0.7, true)
+    GameTooltip:Show()
+  end)
+  b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  sortHeaders[#sortHeaders + 1] = b
+  headers.players[#headers.players + 1] = b
+  return b
+end
+
+local function updateSortHeaders()
+  local db = LFGRivalsDB
+  for _, b in ipairs(sortHeaders) do
+    if b.key == (db.sortKey or "rival") then
+      b.label:SetText("|cffffffff" .. b.text .. (db.sortDesc and " v" or " ^") .. "|r")
+    else
+      b.label:SetText(b.text)
+    end
+  end
 end
 
 local function setBounds(f)
@@ -715,6 +836,7 @@ local function build()
   groupsTab:SetScript("OnClick", function() setTab("groups") end)
 
   tankCB = checkbox(frame, "Show tanks", "showTanks", 196)
+  needsCB = checkbox(frame, "Needs my role", "needsMyRole", 196)
   checkbox(frame, "Include chat LFG", "useChat", 300)
 
   local optBtn = smallButton(frame, "Options", 80, 22)
@@ -733,11 +855,12 @@ local function build()
   end)
   clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-  header("players", 4, "Role")
-  header("players", 42, "Name")
-  header("players", 166, "Level")
-  header("players", 200, "Rival")
-  header("players", 244, "Note")
+  header("players", COL.role, "Role")
+  sortHeader(COL.name, "Name", "name")
+  sortHeader(COL.level - 4, "Level", "level")
+  sortHeader(COL.rival, "Rival", "rival")
+  sortHeader(COL.zone, "Zone", "zone")
+  header("players", COL.note, "Note")
   header("groups", 22, "Leader / activity")
   hMakeup = header("groups", 0, "Makeup")
   hRival = header("groups", 0, "Rival")
@@ -777,10 +900,22 @@ local function build()
     ns.Core.MarkDirty()
   end)
 
-  local acc = 0
+  local acc, t = 0, 0
   frame:SetScript("OnUpdate", function(_, elapsed)
     acc = acc + elapsed
     if acc >= 1 then acc = 0; updatePoll() end
+    -- Pulse open slots for your role on the Groups tab.
+    t = t + elapsed
+    if LFGRivalsDB.tab == "groups" then
+      local a = 0.45 + 0.55 * math.abs(math.sin(t * 3))
+      for _, r in ipairs(gRows) do
+        if r:IsShown() then
+          for _, b in ipairs(r.icons) do
+            if b.pulse and b:IsShown() then b.tex:SetAlpha(a) end
+          end
+        end
+      end
+    end
   end)
   frame:SetScript("OnShow", function()
     ns.Minimap.SetFlash(false)
@@ -846,10 +981,8 @@ local function playerDisplay()
     display[#display + 1] = { section = "|cff888888No solo players yet - press Refresh or wait for chat LFG.|r" }
   end
   if hidden > 0 then
-    local lo, hi, why = ns.Core.LevelWindow()
-    local what = (why == "dungeon" and ("outside " .. lo .. "-" .. hi .. " or asking for another dungeon"))
-      or (why == "near" and ("outside levels " .. lo .. "-" .. hi)) or "asking for another dungeon"
-    display[#display + 1] = { section = "|cff888888" .. hidden .. " more hidden: " .. what .. " (Options).|r" }
+    display[#display + 1] = { section = "|cff888888" .. hidden
+      .. " more hidden by filters (level, other dungeon or avoid) - Options can grey them instead.|r" }
   end
   return display
 end
@@ -874,12 +1007,14 @@ function UI.Refresh()
   if tab == "players" then playersTab:LockHighlight(); groupsTab:UnlockHighlight()
   else groupsTab:LockHighlight(); playersTab:UnlockHighlight() end
   tankCB:SetShown(tab == "players")
+  needsCB:SetShown(tab == "groups")
   for set, list in pairs(headers) do
     for _, h in ipairs(list) do h:SetShown(set == tab) end
   end
+  updateSortHeaders()
   local iconsX = groupColumns()
   hMakeup:SetPoint("TOPLEFT", frame, "TOPLEFT", 12 + iconsX, ROW3 - 30)
-  hRival:SetPoint("TOPLEFT", frame, "TOPLEFT", 12 + content:GetWidth() - 4 - 32 - 8 - 34, ROW3 - 30)
+  hRival:SetPoint("TOPLEFT", frame, "TOPLEFT", 12 + content:GetWidth() - 4 - 44 - 4 - 28 - 8 - 34, ROW3 - 30)
 
   local height
   if tab == "players" then

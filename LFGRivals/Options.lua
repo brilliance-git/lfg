@@ -90,15 +90,18 @@ local function build()
   label(panel, "Filters", y, "GameFontNormal"); y = y - 18
   check(panel, "Only players in the picked dungeon's level range", "levelFromDungeon", y); y = y - 26
   numberRow(panel, "Otherwise, only players within this many levels of me (0 = off)", "levelRange", y, 0, 60); y = y - 32
-  numberRow(panel, "Hide DPS with a rival score above", "maxScore", y, 0, 100); y = y - 36
+  numberRow(panel, "Hide DPS with a rival score above", "maxScore", y, 0, 100); y = y - 30
+  check(panel, "Grey out filtered players instead of hiding them", "greyFiltered", y); y = y - 22
+  check(panel, "Hide players and groups I marked Avoid", "hideAvoided", y); y = y - 30
 
   label(panel, "Whisper messages", y, "GameFontNormal"); y = y - 18
   label(panel, "To players:", y); y = y - 14
   editBox(panel, 18, y, W - 36, "whisperMsg"); y = y - 24
-  label(panel, "To group leaders:", y); y = y - 14
+  label(panel, "To group leaders (W types it, Join sends it):", y); y = y - 14
   editBox(panel, 18, y, W - 36, "groupWhisperMsg"); y = y - 24
-  label(panel, "|cff888888{name} {dungeon} {role} {me} get filled in. The text is typed into chat;"
-    .. " you press Enter to send. Leave empty to just open the whisper.|r", y); y = y - 44
+  label(panel, "|cff888888{name} {dungeon} {role} {me} {level} get filled in. W types the text into chat"
+    .. " and you press Enter; Join sends it right away.|r", y); y = y - 40
+  check(panel, "Join: accept that leader's invite automatically", "autoAccept", y); y = y - 30
 
   local forget = ns.UI.SmallButton(panel, "Forget who I contacted", 170, 22)
   forget:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, y)

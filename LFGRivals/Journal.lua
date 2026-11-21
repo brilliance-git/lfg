@@ -100,6 +100,21 @@ function J.Loot(name)
   return out, d.fullItemsTBD and true or false, jname
 end
 
+-- Where a zone is relative to a dungeon: "in" (inside it), "near" (the
+-- dungeon's zone, from the journal's location text), or nil.
+function J.Proximity(zone, dungeonName)
+  if not zone or zone == "" or not dungeonName then return nil end
+  local z = norm(zone)
+  if z == "" then return nil end
+  local jname = J.Find(dungeonName) or dungeonName
+  local dn = norm(jname)
+  if dn ~= "" and (dn:find(z, 1, true) or z:find(dn, 1, true)) then return "in" end
+  local f = fdj()
+  local loc = f and f.DB[jname] and f.DB[jname].location
+  if type(loc) == "string" and norm(loc):find(z, 1, true) then return "near" end
+  return nil
+end
+
 local AMBIGUOUS = { st = true, ht = true, rl = true, gy = true, arm = true, lib = true, halls = true,
                     dal = true, zul = true, cath = true, downs = true, depths = true, sunken = true }
 
