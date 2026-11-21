@@ -138,8 +138,20 @@ end
 -- groups[resultID] = { leader, leaderClass, activity, comment, size, max, members }
 Sources.groups = {}
 
+-- Clear button: empty the lists. The client keeps its last results and keeps
+-- sending updates for them, so scans stay off until a new search comes back.
+function Sources.ClearResults()
+  wipe(Sources.entries)
+  wipe(Sources.groups)
+  Sources.cleared = true
+  Sources.lastScan = nil
+  Sources.lastSummary = nil
+  ns.Log.Add("ui", "cleared results")
+end
+
 function Sources.ScanGroupFinder()
   if not (C_LFGList and C_LFGList.GetSearchResults and C_LFGList.GetSearchResultInfo) then return 0 end
+  if Sources.cleared then return 0 end
 
   -- Drop old Group Finder entries; the result set is the source of truth.
   for k, e in pairs(Sources.entries) do

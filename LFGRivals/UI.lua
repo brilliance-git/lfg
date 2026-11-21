@@ -316,6 +316,9 @@ local function makeRow(i)
   r.action = smallButton(r, "", 110, 20)
   r.action:SetPoint("RIGHT", r, "RIGHT", -4, 0)
   r.action:SetScript("OnClick", function() if r.data and r.data.action then r.data.action.fn() end end)
+  r.action2 = smallButton(r, "", 60, 20)
+  r.action2:SetPoint("RIGHT", r.action, "LEFT", -4, 0)
+  r.action2:SetScript("OnClick", function() if r.data and r.data.action2 then r.data.action2.fn() end end)
 
   r:SetScript("OnEnter", showPlayerTooltip)
   r:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -335,6 +338,8 @@ local function setRow(r, d)
   r.iBtn:SetShown(not isHeader)
   r.header:SetShown(isHeader)
   r.action:SetShown(isHeader and d.action ~= nil)
+  r.action2:SetShown(isHeader and d.action2 ~= nil)
+  if isHeader and d.action2 then r.action2:SetText(d.action2.text) end
   r.bg:SetShown(d.plan == true)
   r:SetAlpha(1)
   if isHeader then
@@ -578,6 +583,8 @@ local function updatePoll()
   local sc, s = ns.Sources.lastScan, ns.Sources.lastSearch
   if s and not s.ok then
     scanText:SetText("|cffff6060Search failed - type /rivals log|r")
+  elseif ns.Sources.cleared then
+    scanText:SetText("|cff888888Cleared - Refresh to search again|r")
   elseif sc then
     scanText:SetText(string.format("|cff888888Last results: %d listings, %.0fs ago|r", sc.total, GetTime() - sc.at))
   else
@@ -714,6 +721,18 @@ local function build()
   optBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, ROW3)
   optBtn:SetScript("OnClick", function() ns.Options.Toggle() end)
 
+  local clearBtn = smallButton(frame, "Clear", 56, 22)
+  clearBtn:SetPoint("RIGHT", optBtn, "LEFT", -4, 0)
+  clearBtn:SetScript("OnClick", function() ns.Core.ClearAll() end)
+  clearBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Clear")
+    GameTooltip:AddLine("Empties the player and group lists and closes the group suggestion."
+      .. " The next Refresh searches again.", 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
   header("players", 4, "Role")
   header("players", 42, "Name")
   header("players", 166, "Level")
@@ -798,6 +817,7 @@ local function playerDisplay()
     display[#display + 1] = {
       section = "|cffffd100Suggested group|r |cff888888- lowest rivals for your open slots|r",
       action = { text = "Invite next", fn = function() ns.Core.InviteNext() end },
+      action2 = { text = "Close", fn = function() LFGRivalsDB.buildMode = false; UI.Refresh() end },
     }
     for _, d in ipairs(picks) do
       local copy = {}

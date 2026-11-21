@@ -320,6 +320,13 @@ function Core.BuildPlan()
   return picks, missing
 end
 
+-- Clear button: empty the results and close the group suggestion.
+function Core.ClearAll()
+  Sources.ClearResults()
+  LFGRivalsDB.buildMode = false
+  markDirty()
+end
+
 -- Invite the next suggested player you haven't invited yet. Returns the name.
 function Core.InviteNext()
   local picks = Core.BuildPlan()
@@ -535,6 +542,7 @@ f:SetScript("OnEvent", function(_, event, ...)
   elseif event == "LFG_LIST_SEARCH_RESULTS_RECEIVED" or event == "LFG_LIST_SEARCH_RESULT_UPDATED" then
     if event == "LFG_LIST_SEARCH_RESULTS_RECEIVED" then
       ns.Log.Add("event", event)
+      Sources.cleared = false   -- a fresh search undoes Clear
       -- Any fresh search (ours, the keybind, or Blizzard's own UI) resets the timer.
       scheduleNext()
     end
@@ -612,6 +620,9 @@ SlashCmdList.LFGRIVALS = function(msg)
     print(db.levelRange > 0 and ("showing players within " .. db.levelRange .. " levels of you.")
       or "level filter off.")
     markDirty()
+  elseif msg == "clear" then
+    Core.ClearAll()
+    print("results and group suggestion cleared - Refresh to search again.")
   elseif msg == "alerts" then
     db.alerts = not db.alerts
     print("alerts " .. (db.alerts and "on." or "off."))

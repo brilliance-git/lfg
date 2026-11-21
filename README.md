@@ -16,6 +16,7 @@ The TOC lists interface `11507, 16001`. If the client says "out of date", run `/
 - **Players tab:** solo listers and chat LFG. Columns are role, name, level, Rival score and note. Click a row to whisper, shift-click to invite. The `W` and `+` buttons do the same. Hover a row for the full note and the likely spec(s).
 - **Groups tab:** listed groups with a crown on the leader, the activity and note, role icons for current members (with a class-colored bar), and faded icons for open slots showing the role the group still wants (raids show counts instead). Hover an icon for that member's name, class, level and Rival score. Groups are sorted by their *worst* gear rival for you, lowest first. Click a group to whisper the leader.
 - **Build group:** suggests the best healer, tank and DPS for your open slots (lowest Rival first, counting who's already in your party). `Invite next` invites the next suggested player you haven't invited yet, one per click.
+- **Clear** (or `/rivals clear`) empties the player and group lists and closes the group suggestion. The lists stay empty until your next search comes back. `Close` on the suggestion header closes just the suggestion.
 - **Contacted players:** anyone you whisper or invite gets dimmed with a `w` or `inv` tag for 2 hours, so you don't message them twice.
 - **Resize** the window from the bottom-right corner. The size is saved.
 - Toggles: show tanks (Players tab), include chat LFG.
