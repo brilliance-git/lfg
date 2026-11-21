@@ -21,6 +21,7 @@ local DEFAULTS = {
   alertSound = true,
   alertScore = 30,      -- DPS alert only at or below this Rival score
   levelRange = 0,       -- show only players within +/- this of my level; 0 = off
+  levelFromDungeon = true, -- with one dungeon picked, use its level range instead
   whisperMsg = "Hi {name}! Want to run {dungeon}? I'm a {me}.",
   groupWhisperMsg = "Hi! Room for a {me} in your {dungeon} group?",
   contacted = {},       -- [name] = { t = time(), how = "whisper"|"invite" }
@@ -184,8 +185,10 @@ function Core.BuildList(opts)
   local meClass, meSpec = Core.Me()
   local myName = UnitName and UnitName("player")
   local myLevel = UnitLevel and UnitLevel("player") or 0
-  local profile = Core.CurrentProfile()
-  local out, hiddenByLevel = {}, 0
+  local profile, dungeon = Core.CurrentProfile()
+  local lo, hi = Core.LevelWindow()
+  local wantDungeon = dungeon and ns.Journal.Find(dungeon)
+  local out, hidden = {}, 0
 
   Sources.Prune()
   for _, e in pairs(Sources.entries) do
@@ -193,9 +196,14 @@ function Core.BuildList(opts)
       and (e.source ~= "chat" or db.useChat)
       and (e.role ~= "TANK" or db.showTanks or (opts and opts.allRoles))
       and e.role ~= nil
-    if keep and db.levelRange > 0 and e.level and math.abs(e.level - myLevel) > db.levelRange then
+    if keep and lo and e.level and (e.level < lo or e.level > hi) then
       keep = false
-      hiddenByLevel = hiddenByLevel + 1
+      hidden = hidden + 1
+    end
+    -- Chat LFG that names a different dungeon than the one you picked.
+    if keep and wantDungeon and e.dungeon and e.dungeon ~= wantDungeon then
+      keep = false
+      hidden = hidden + 1
     end
     if keep then
       local specs = specsFor(e)
@@ -222,7 +230,23 @@ function Core.BuildList(opts)
     if a.certain ~= b.certain then return a.certain end
     return (a.entry.name or "") < (b.entry.name or "")
   end)
-  return out, hiddenByLevel
+  return out, hidden
+end
+
+-- The level window players must be in: the picked dungeon's range (from the
+-- journal addon or the client) when that option is on, otherwise +/- N of
+-- your level. Returns lo, hi, why - or nil when nothing filters.
+function Core.LevelWindow()
+  local db = LFGRivalsDB
+  if db.levelFromDungeon and db.activityID and db.activityID > 0 then
+    local lo, hi = ns.Journal.Range(db.activityID, Sources.ActivityName(db.activityID))
+    if lo then return lo, hi, "dungeon" end
+  end
+  if db.levelRange > 0 then
+    local me = UnitLevel and UnitLevel("player") or 0
+    return me - db.levelRange, me + db.levelRange, "near"
+  end
+  return nil
 end
 
 -- Rival score of one group member (Groups tab, icon tooltips).
@@ -486,7 +510,8 @@ f:SetScript("OnEvent", function(_, event, ...)
     -- presses do work, so forget it.
     LFGRivalsDB.blockedBuild = nil
     Core.PruneContacted()
-    ns.Log.Add("init", "loot: journal API", ns.Loot.journal.available)
+    ns.Log.Add("init", "loot: client journal API", ns.Loot.journal.available,
+      "ForeverDungeonJournal addon", ns.Journal.Available())
     ns.UI.Build()   -- create the window (hidden) so the Refresh keybind works right away
     if type(LFGRivalsDB.minimap) ~= "table" then LFGRivalsDB.minimap = { angle = 200, hide = false } end
     ns.Minimap.Create()

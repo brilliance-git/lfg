@@ -60,6 +60,34 @@ local function classify(itemID)
   return nil
 end
 
+-- The journal addon's labels ("Legs, Cloth", "Two-Hand, Mace", "Finger"...),
+-- for items the client can't classify.
+local LABEL_WEAPON = { Axe = "axe", Mace = "mace", Sword = "sword" }
+local function classifyLabel(label)
+  if type(label) ~= "string" then return nil end
+  local slot, typ = label:match("^([^,]+),%s*(.+)$")
+  slot = slot or label
+  if slot == "Finger" or slot == "Neck" or slot == "Trinket" or slot == "Back" then return "acc", slot:lower() end
+  if slot == "Held In Off-hand" then return "weapon", "offhand" end
+  if typ == "Shield" then return "weapon", "shield" end
+  if slot == "Relic" and typ then return "weapon", typ:lower() end
+  if typ == "Cloth" or typ == "Leather" or typ == "Mail" or typ == "Plate" then return "armor", typ:lower() end
+  if slot == "Thrown" then return "weapon", "thrown" end
+  if slot == "Ranged" and typ then
+    local r = { Bow = "bow", Gun = "gun", Crossbow = "xbow", Wand = "wand" }
+    return r[typ] and "weapon" or nil, r[typ]
+  end
+  if typ then
+    local hand = slot == "Two-Hand" and "2h_" or "1h_"
+    if LABEL_WEAPON[typ] then return "weapon", hand .. LABEL_WEAPON[typ] end
+    if typ == "Staff" then return "weapon", "staff" end
+    if typ == "Polearm" then return "weapon", "polearm" end
+    if typ == "Dagger" then return "weapon", "dagger" end
+    if typ == "Fist Weapon" then return "weapon", "fist" end
+  end
+  return nil
+end
+
 -- Stat keys -> family shares. Returns fam (sums to 1), or nil if the item has
 -- no useful stats / isn't cached yet (second value true = try again later).
 local function family(itemID)
@@ -205,18 +233,23 @@ function Loot.ProfileFor(name)
   local p = cache[key]
   if p ~= nil then return p or nil end
 
-  local fromJournal = journalItems(name) or {}
+  -- Source 0: the ForeverDungeonJournal addon (full boss loot lists).
+  local fromAddon, partial = ns.Journal.Loot(name)
+  fromAddon = fromAddon or {}
+  local fromJournal = #fromAddon == 0 and journalItems(name) or {}
   local fromSeen = seenItems(name) or {}
   local items, used, pending = {}, {}, false
-  local function add(itemID)
+  local function add(itemID, label)
     if used[itemID] then return end
     used[itemID] = true
     local kind, typ = classify(itemID)
+    if not kind then kind, typ = classifyLabel(label) end
     if not kind then return end
     local fam, later = family(itemID)
     if later then pending = true end
     items[#items + 1] = { id = itemID, kind = kind, type = typ, fam = fam }
   end
+  for _, it in ipairs(fromAddon) do add(it.id, it.label) end
   for _, id in ipairs(fromJournal) do add(id) end
   for _, id in ipairs(fromSeen) do add(id) end
 
@@ -225,15 +258,16 @@ function Loot.ProfileFor(name)
     if not Loot.loggedMiss then Loot.loggedMiss = {} end
     if not Loot.loggedMiss[key] then
       Loot.loggedMiss[key] = true
-      ns.Log.Add("loot", "no loot data for", name, "- journal items", #fromJournal, "seen", #fromSeen,
-        "(journal API", Loot.journal.available, ")")
+      ns.Log.Add("loot", "no loot data for", name, "- journal addon", #fromAddon, "client journal", #fromJournal,
+        "seen", #fromSeen, "(client journal API", Loot.journal.available, ")")
     end
     return nil
   end
-  p = { name = name, items = items, journal = #fromJournal, seen = #fromSeen, pending = pending }
+  p = { name = name, items = items, addon = #fromAddon, partial = partial, journal = #fromJournal,
+        seen = #fromSeen, pending = pending }
   cache[key] = p
-  ns.Log.Add("loot", "profile", name, "items", #items, "journal", #fromJournal, "seen", #fromSeen,
-    pending and "(some item stats still loading)" or "")
+  ns.Log.Add("loot", "profile", name, "items", #items, "journal addon", #fromAddon, "client journal", #fromJournal,
+    "seen", #fromSeen, pending and "(some item stats still loading)" or "")
   -- Item stats arrive asynchronously; rebuild once they have (a few tries).
   Loot.retries = Loot.retries or {}
   if pending and (Loot.retries[key] or 0) < 5 then
@@ -253,6 +287,7 @@ function Loot.Describe(p, name)
       .. " yet (learned as you see drops there)|r"
   end
   local src = {}
+  if p.addon > 0 then src[#src + 1] = "Dungeon Journal addon" .. (p.partial and ", list incomplete" or "") end
   if p.journal > 0 then src[#src + 1] = p.journal .. " from journal" end
   if p.seen > 0 then src[#src + 1] = p.seen .. " seen" end
   return "|cff40ff40Rival score uses " .. name .. " loot|r |cff888888(" .. #p.items .. " items: "

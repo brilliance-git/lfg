@@ -110,7 +110,7 @@ local function activityInfo(id)
 end
 
 function Sources.ActivityName(id)
-  if not id or id == 0 or not C_LFGList then return nil end
+  if not id or id <= 0 or not C_LFGList then return nil end
   return (activityInfo(id))
 end
 
@@ -288,15 +288,31 @@ function Sources.GetActivities(categoryID)
   return out
 end
 
+-- Pseudo-activity: every dungeon whose level range includes your level.
+Sources.FOR_MY_LEVEL = -1
+
+function Sources.ActivitiesForMyLevel(categoryID)
+  local me = UnitLevel and UnitLevel("player") or 0
+  local out = {}
+  for _, a in ipairs(Sources.GetActivities(categoryID)) do
+    local lo, hi = ns.Journal.Range(a.id, a.name)
+    if lo and me >= lo and me <= hi then out[#out + 1] = a.id end
+  end
+  return out
+end
+
 -- Run a search for the picked category/activity. Must be called from a click
 -- or key press. activityID 0 = everything in the category.
 local function searchPicked()
   local db = LFGRivalsDB
   if not (db and db.categoryID and C_LFGList and C_LFGList.Search) then return false end
   local activityIDs = {}
-  if db.activityID and db.activityID ~= 0 then
+  if db.activityID == Sources.FOR_MY_LEVEL then
+    activityIDs = Sources.ActivitiesForMyLevel(db.categoryID)
+  elseif db.activityID and db.activityID ~= 0 then
     activityIDs[1] = db.activityID
-  else
+  end
+  if #activityIDs == 0 then
     for _, a in ipairs(Sources.GetActivities(db.categoryID)) do activityIDs[#activityIDs + 1] = a.id end
   end
   local s = { at = GetTime(), category = db.categoryID, activities = #activityIDs }
@@ -465,9 +481,10 @@ function Sources.OnChat(text, sender, guid)
   if class and #ns.Data.SpecsForRole(class, role) == 0 then role = "DAMAGER" end
 
   local name = shortName(sender)
-  ns.Log.Add("chat", name, class or "?class", role)
+  local dungeon = ns.Journal.DungeonInText(lower)
+  ns.Log.Add("chat", name, class or "?class", role, dungeon or "")
   Sources.entries["chat:" .. name] = {
-    name = name, class = class, role = role, comment = text,
+    name = name, class = class, role = role, comment = text, dungeon = dungeon,
     source = "chat", groupSize = 1, seen = GetTime and GetTime() or 0,
   }
   return true

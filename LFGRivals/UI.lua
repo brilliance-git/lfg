@@ -201,9 +201,34 @@ local function makePicker(name, parent, width, getItems, getSelected, onPick)
 end
 
 local function categoryItems() return ns.Sources.GetCategories() end
+
+-- "40-47" colored for you: green = your level is in range, orange = too
+-- high for you yet, grey = you've outleveled it.
+local function rangeText(lo, hi)
+  if not lo then return "" end
+  local me = UnitLevel and UnitLevel("player") or 0
+  local c = (me < lo and "|cffff8040") or (me > hi and "|cff808080") or "|cff40ff40"
+  return " " .. c .. "(" .. lo .. "-" .. hi .. ")|r"
+end
+UI.RangeText = rangeText
+
+-- Activities sorted by level, each labelled with its range; plus "All" and
+-- "Dungeons for my level" (every activity whose range includes you).
 local function activityItems()
-  local items = { { id = 0, name = "All" } }
-  for _, a in ipairs(ns.Sources.GetActivities(LFGRivalsDB.categoryID)) do items[#items + 1] = a end
+  local items = {
+    { id = 0, name = "All" },
+    { id = ns.Sources.FOR_MY_LEVEL, name = "Dungeons for my level (" .. (UnitLevel and UnitLevel("player") or "?") .. ")" },
+  }
+  local acts = {}
+  for _, a in ipairs(ns.Sources.GetActivities(LFGRivalsDB.categoryID)) do
+    local lo, hi = ns.Journal.Range(a.id, a.name)
+    acts[#acts + 1] = { id = a.id, name = a.name .. rangeText(lo, hi), lo = lo or 999 }
+  end
+  table.sort(acts, function(x, y)
+    if x.lo ~= y.lo then return x.lo < y.lo end
+    return x.name < y.name
+  end)
+  for _, a in ipairs(acts) do items[#items + 1] = a end
   return items
 end
 
@@ -236,7 +261,8 @@ local function showPlayerTooltip(row)
   if d.score then
     GameTooltip:AddLine("Gear competition: " .. scoreColor(d.score) .. d.score .. "/100|r", 1, 1, 1)
   end
-  GameTooltip:AddLine("Source: " .. (e.source == "chat" and "Chat" or "Group Finder"), 0.7, 0.7, 0.7)
+  GameTooltip:AddLine("Source: " .. (e.source == "chat" and "Chat" or "Group Finder")
+    .. (e.dungeon and (" - wants " .. e.dungeon) or ""), 0.7, 0.7, 0.7)
   if d.contacted then
     GameTooltip:AddLine("You " .. (d.contacted.how == "invite" and "invited" or "whispered") .. " them "
       .. ago(d.contacted.t), 1, 0.6, 0.2)
@@ -471,7 +497,7 @@ local function setGroupRow(r, d)
   r.sub:SetWidth(textW)
   r.leader:SetText(classColor(g.leaderClass) .. g.leader .. "|r"
     .. (d.contacted and " |cffff9933w|r" or ""))
-  local sub = "|cffaaaaaa" .. g.activity .. "|r"
+  local sub = "|cffaaaaaa" .. g.activity .. "|r" .. rangeText(ns.Journal.Range(nil, g.activity))
   if g.comment ~= "" then sub = sub .. "  |cff40ff40" .. g.comment .. "|r" end
   r.sub:SetText(sub)
   r:SetAlpha(d.contacted and 0.55 or 1)
@@ -800,7 +826,10 @@ local function playerDisplay()
     display[#display + 1] = { section = "|cff888888No solo players yet - press Refresh or wait for chat LFG.|r" }
   end
   if hidden > 0 then
-    display[#display + 1] = { section = "|cff888888" .. hidden .. " more hidden by the level filter (Options).|r" }
+    local lo, hi, why = ns.Core.LevelWindow()
+    local what = (why == "dungeon" and ("outside " .. lo .. "-" .. hi .. " or asking for another dungeon"))
+      or (why == "near" and ("outside levels " .. lo .. "-" .. hi)) or "asking for another dungeon"
+    display[#display + 1] = { section = "|cff888888" .. hidden .. " more hidden: " .. what .. " (Options).|r" }
   end
   return display
 end

@@ -87,8 +87,9 @@ local function build()
   label(panel, "|cff888888Healers always alert; tanks only with Show tanks on. No alerts while"
     .. " this window is open.|r", y); y = y - 34
 
-  label(panel, "Filters", y, "GameFontNormal"); y = y - 20
-  numberRow(panel, "Only players within this many levels of me (0 = off)", "levelRange", y, 0, 60); y = y - 32
+  label(panel, "Filters", y, "GameFontNormal"); y = y - 18
+  check(panel, "Only players in the picked dungeon's level range", "levelFromDungeon", y); y = y - 26
+  numberRow(panel, "Otherwise, only players within this many levels of me (0 = off)", "levelRange", y, 0, 60); y = y - 32
   numberRow(panel, "Hide DPS with a rival score above", "maxScore", y, 0, 100); y = y - 36
 
   label(panel, "Whisper messages", y, "GameFontNormal"); y = y - 18
@@ -107,7 +108,8 @@ local function build()
   end)
   y = y - 32
 
-  label(panel, "Loot data", y, "GameFontNormal"); y = y - 18
+  label(panel, "Loot data and level ranges", y, "GameFontNormal"); y = y - 18
+  controls.journal = label(panel, "", y); y = y - 28
   controls.loot = label(panel, "", y); y = y - 30
   local reread = ns.UI.SmallButton(panel, "Re-read loot", 110, 22)
   reread:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, y)
@@ -126,6 +128,9 @@ function Options.Refresh()
   for _, f in ipairs(controls) do f() end
   local p, name = ns.Core.CurrentProfile()
   controls.loot:SetText(ns.Loot.Describe(p, name))
+  controls.journal:SetText(ns.Journal.Available()
+    and "|cff40ff40ForeverDungeonJournal found|r |cff888888- its level ranges and boss loot are used.|r"
+    or "|cffff8040ForeverDungeonJournal not loaded|r |cff888888- using the game's own ranges and drops you've seen.|r")
 end
 
 function Options.Toggle()

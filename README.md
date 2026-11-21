@@ -11,7 +11,7 @@ The TOC lists interface `11507, 16001`. If the client says "out of date", run `/
 ## Use
 
 - `/rivals` (or `/lfgr`) toggles the window, and so does the **minimap button** (left-click). Right-click the button to search now, drag it to move it around the minimap, and use `/rivals minimap` to hide or show it.
-- **Search:** pick a category (Dungeons, Raids…) and an activity (one specific dungeon, or "All"), like Blizzard's LFG browser. The game won't let an addon search from a dropdown pick, so picking makes a refresh due and the search runs on your next key press or Refresh click.
+- **Search:** pick a category (Dungeons, Raids…) and an activity, like Blizzard's LFG browser. Dungeons are sorted by level and show their range: green if your level is in it, orange if it's above you, grey if you've outleveled it. "Dungeons for my level" searches every dungeon whose range includes you. Ranges come from ForeverDungeonJournal when it's installed, otherwise from the game's LFG data. The game won't let an addon search from a dropdown pick, so picking makes a refresh due and the search runs on your next key press or Refresh click.
 - **Me:** click the class or spec button to cycle forward, right-click to go back. Your spec is auto-detected from talents until you pick one by hand (`/rivals reset` re-detects it).
 - **Players tab:** solo listers and chat LFG. Columns are role, name, level, Rival score and note. Click a row to whisper, shift-click to invite. The `W` and `+` buttons do the same. Hover a row for the full note and the likely spec(s).
 - **Groups tab:** listed groups with a crown on the leader, the activity and note, role icons for current members (with a class-colored bar), and faded icons for open slots showing the role the group still wants (raids show counts instead). Hover an icon for that member's name, class, level and Rival score. Groups are sorted by their *worst* gear rival for you, lowest first. Click a group to whisper the leader.
@@ -24,7 +24,7 @@ The TOC lists interface `11507, 16001`. If the client says "out of date", run `/
 ## Options (`Options` button or `/rivals options`)
 
 - **Alerts:** when a new healer, or a DPS at or under your alert score (default 30), shows up while the window is closed, you get a chat line, a sound and a pulsing minimap button. `/rivals alerts` toggles them.
-- **Level filter:** only show players within *N* levels of you (`/rivals level 5`, `0` = off). Players with no known level (chat) are always shown.
+- **Level filter:** with one dungeon picked, only players inside that dungeon's level range are shown (on by default). Otherwise you can show only players within *N* levels of you (`/rivals level 5`, `0` = off). Players with no known level (chat) are always shown. Chat LFG that names a different dungeon ("LFG rfk heal") is hidden while you've picked a dungeon.
 - **Hide DPS above** a Rival score (`/rivals max 60`).
 - **Whisper messages:** text typed into chat when you click `W`, one for players and one for group leaders. `{name}`, `{dungeon}`, `{role}` and `{me}` get filled in. You still press Enter to send.
 
@@ -67,10 +67,11 @@ All tuning lives in `Data.lua` (`SPECS`, `STAT_SIM`, `WEIGHTS`, `SPEC_KEYWORDS`)
 
 When you've picked one dungeon and the addon knows at least 4 of its drops, the score uses that dungeon's loot instead of the table above. Each drop counts by how much you'd want it (armor type or weapon type, times how well its stats fit your spec). A player's score is the share of *your* wanted drops that they'd also want. The line at the bottom of the window says which model is in use.
 
-Loot comes from two places:
+Loot comes from up to three places:
 
-1. **The Dungeon Journal**, if the client has one (`EJ_*` functions).
-2. **Drops you've seen.** Every green-or-better equippable item you see drop in a dungeon (in your loot window or in loot chat) is saved per dungeon. Custom dungeons fill in as you run them.
+1. **The ForeverDungeonJournal addon**, if you have it installed. Its full boss loot lists are read live in game (nothing is copied), so custom dungeons like Krol'dok Stronghold work from the first run.
+2. **The game's own Dungeon Journal**, if the client has one (`EJ_*` functions).
+3. **Drops you've seen.** Every green-or-better equippable item you see drop in a dungeon (in your loot window or in loot chat) is saved per dungeon. Custom dungeons fill in as you run them.
 
 `/rivals loot` shows what's known for the picked dungeon.
 
