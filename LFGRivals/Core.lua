@@ -17,8 +17,7 @@ local DEFAULTS = {
   categoryID = nil,     -- Group Finder category to search (e.g. Dungeons)
   activityID = 0,       -- specific dungeon/raid; 0 = whole category
   minimap = { angle = 200, hide = false },
-  alerts = true,        -- chat line + sound + minimap flash on new matches
-  alertSound = true,
+  alerts = true,        -- chat line + minimap flash on new matches (no sound)
   alertScore = 30,      -- DPS alert only at or below this Rival score
   levelRange = 0,       -- show only players within +/- this of my level; 0 = off
   levelFromDungeon = true, -- with one dungeon picked, use its level range instead
@@ -455,7 +454,7 @@ end
 -- Alerts: a new healer, or a DPS under your alert score, shows up
 ---------------------------------------------------------------------------
 
-local alerted, alertSeeded, lastSound = {}, false, 0
+local alerted, alertSeeded = {}, false
 
 function Core.CheckAlerts()
   local db = LFGRivalsDB
@@ -487,10 +486,6 @@ function Core.CheckAlerts()
   end
   if #fresh > 3 then print("...and " .. (#fresh - 3) .. " more.") end
   ns.Log.Add("alert", #fresh, "new matches")
-  if db.alertSound and GetTime() - lastSound > 10 and PlaySound then
-    lastSound = GetTime()
-    pcall(PlaySound, (SOUNDKIT and SOUNDKIT.READY_CHECK) or 8960, "Master")
-  end
   ns.Minimap.SetFlash(true)
 end
 

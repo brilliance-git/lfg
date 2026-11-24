@@ -82,7 +82,6 @@ local function build()
   local y = -30
   label(panel, "Alerts", y, "GameFontNormal"); y = y - 18
   check(panel, "Alert me about new matches (chat + minimap)", "alerts", y); y = y - 24
-  check(panel, "Play a sound", "alertSound", y); y = y - 28
   numberRow(panel, "Alert on DPS with a rival score up to", "alertScore", y, 0, 100); y = y - 28
   label(panel, "|cff888888Healers always alert; tanks only with Show tanks on. No alerts while"
     .. " this window is open.|r", y); y = y - 34

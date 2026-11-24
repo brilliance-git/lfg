@@ -30,7 +30,7 @@ The TOC lists interface `11507, 16001`. If the client says "out of date", run `/
 
 ## Options (`Options` button or `/rivals options`)
 
-- **Alerts:** when a new healer, or a DPS at or under your alert score (default 30), shows up while the window is closed, you get a chat line, a sound and a pulsing minimap button. `/rivals alerts` toggles them.
+- **Alerts:** when a new healer, or a DPS at or under your alert score (default 30), shows up while the window is closed, you get a chat line and a pulsing minimap button (no sound). `/rivals alerts` toggles them.
 - **Level filter:** with one dungeon picked, only players inside that dungeon's level range are shown (on by default). Otherwise you can show only players within *N* levels of you (`/rivals level 5`, `0` = off). Players with no known level (chat) are always shown. Chat LFG that names a different dungeon ("LFG rfk heal") is hidden while you've picked a dungeon.
 - **Hide DPS above** a Rival score (`/rivals max 60`).
 - **Whisper messages:** text typed into chat when you click `W`, one for players and one for group leaders. `{name}`, `{dungeon}`, `{role}` and `{me}` get filled in. You still press Enter to send.
