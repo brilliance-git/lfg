@@ -3,7 +3,7 @@
 ## Notes: Find healers first, then DPS ranked by how little they compete with you for loot.
 ## Author: brilliance-git
 ## Version: 0.6.4
-## IconTexture: InterfaceAddOnsLFGRivalsLFGRivals
+## IconTexture: Interface\AddOns\LFGRivals\LFGRivals
 ## SavedVariables: LFGRivalsDB
 ## OptionalDeps: ForeverDungeonJournal
 
