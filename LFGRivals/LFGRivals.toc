@@ -2,7 +2,8 @@
 ## Title: LFG Rivals
 ## Notes: Find healers first, then DPS ranked by how little they compete with you for loot.
 ## Author: brilliance-git
-## Version: 0.6.3
+## Version: 0.6.4
+## IconTexture: InterfaceAddOnsLFGRivalsLFGRivals
 ## SavedVariables: LFGRivalsDB
 ## OptionalDeps: ForeverDungeonJournal
 
